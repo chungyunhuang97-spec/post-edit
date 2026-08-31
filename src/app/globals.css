@@ -3,22 +3,21 @@
 :root {
   color-scheme: dark;
 
-  --color-bg: #0a0a12;
-  --color-surface: #15111f;
-  --color-surface-2: #201a30;
-  --color-ink: #f5f3ff;
-  --color-ink-muted: #a8a2c4;
-  --color-ink-faint: #6b6689;
-  --color-line: #2c2740;
+  --color-bg: #0b0b0a;
+  --color-surface: #141412;
+  --color-surface-2: #1c1c19;
+  --color-ink: #f5f5ef;
+  --color-ink-muted: #9c9c92;
+  --color-ink-faint: #5c5c54;
+  --color-line: #2a2a26;
 
-  /* Y2K accent trio -- hot pink / electric cyan / violet, used for the
-     active tab, primary button, focus rings and glow accents. */
-  --color-accent: #ff2ec4;
-  --color-accent-2: #00e5ff;
-  --color-accent-3: #7c3aed;
-  --color-accent-soft: #2a1830;
-
-  --gradient-y2k: linear-gradient(135deg, #ff2ec4 0%, #7c3aed 55%, #00e5ff 100%);
+  /* Bold graphic-poster accents -- acid lime primary (matching the lean-
+     toward reference), electric blue secondary, both meant to sit as flat
+     fills with hard edges rather than a soft blended gradient. */
+  --color-accent: #c8ff3d;
+  --color-accent-ink: #0b0b0a;
+  --color-accent-2: #3d7bff;
+  --color-accent-soft: #1c220a;
 }
 
 @theme inline {
@@ -30,24 +29,38 @@
   --color-ink-faint: var(--color-ink-faint);
   --color-line: var(--color-line);
   --color-accent: var(--color-accent);
+  --color-accent-ink: var(--color-accent-ink);
   --color-accent-2: var(--color-accent-2);
-  --color-accent-3: var(--color-accent-3);
   --color-accent-soft: var(--color-accent-soft);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-brand: var(--font-archivo-black);
 }
 
-.y2k-gradient {
-  background-image: var(--gradient-y2k);
+/* Flat lime fill for primary actions -- a poster sticker, not a blended
+   glow. Text sits in near-black for contrast, same relationship as the
+   reference imagery's lime-on-black / black-on-lime blocking. */
+.accent-fill {
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
 }
 
-.y2k-glow {
-  box-shadow: 0 0 0 1px rgba(255, 46, 196, 0.35), 0 0 18px rgba(124, 58, 237, 0.45);
+/* Hard offset shadow (no blur) instead of a soft glow -- reads as a
+   printed/cut sticker rather than a screen-glow effect. */
+.accent-shadow {
+  box-shadow: 4px 4px 0 0 var(--color-ink);
+}
+
+/* Subtle halftone dot texture, used sparingly behind a couple of large
+   flat-color regions as a nod to the duotone-photo reference look. */
+.halftone {
+  background-image: radial-gradient(var(--color-line) 1px, transparent 1px);
+  background-size: 10px 10px;
 }
 
 /* Native form controls (range/select/color/number) pick up dark chrome
    from color-scheme, but the range thumb/track still needs an explicit
-   accent to read as "Y2K" instead of default OS grey/blue. */
+   accent to read as intentional rather than default OS grey/blue. */
 input[type="range"] {
-  accent-color: var(--color-accent-2);
+  accent-color: var(--color-accent);
 }

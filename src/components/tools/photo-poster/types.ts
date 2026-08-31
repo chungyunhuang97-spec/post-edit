@@ -8,7 +8,17 @@ export interface CanvasPreset {
   height: number;
 }
 
-export type FontOptionId = "sans" | "display" | "serif" | "mono";
+export type FontOptionId =
+  | "sans"
+  | "serif"
+  | "mono"
+  | "display-black"
+  | "elegant-serif"
+  | "geometric"
+  | "handwriting"
+  | "condensed"
+  | "script"
+  | "soft-serif";
 
 export interface FontOption {
   id: FontOptionId;
@@ -72,3 +82,16 @@ export interface Cutout {
 /** One token in the flowed caption: either a plain word or a cutout marker
  * referencing a Cutout by id. */
 export type CaptionToken = { kind: "word"; text: string } | { kind: "cutout"; cutoutId: string };
+
+/** The 4 concrete arrangements the poster's caption zone and photo zone
+ * can be placed in relative to each other. */
+export type PosterLayoutId = "text-top" | "photo-top" | "split-left" | "split-right";
+
+export interface LayoutOption {
+  id: PosterLayoutId;
+  label: string;
+}
+
+/** User-facing selector state: the 4 concrete layouts, plus "random" which
+ * re-rolls to one of them each time the cutouts are randomized. */
+export type LayoutModeId = PosterLayoutId | "random";

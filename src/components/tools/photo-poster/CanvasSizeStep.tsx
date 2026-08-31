@@ -12,7 +12,9 @@ export function CanvasSizeStep({ onSelect }: { onSelect: (preset: CanvasPreset) 
     <div className="flex h-full min-h-0 flex-col items-center justify-center overflow-y-auto bg-bg px-4 py-8">
       <div className="mx-auto flex w-full max-w-xl flex-col gap-6">
         <div>
-          <h1 className="bg-clip-text text-2xl font-bold text-transparent y2k-gradient">相片海報產生器</h1>
+          <h1 className="text-2xl text-accent" style={{ fontFamily: "var(--font-brand)" }}>
+            be4-ㄉ-post
+          </h1>
           <p className="mt-2 text-sm text-ink-muted">先選一個畫布尺寸，之後隨時可以再回來這裡調整。</p>
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -21,7 +23,7 @@ export function CanvasSizeStep({ onSelect }: { onSelect: (preset: CanvasPreset) 
               key={preset.id}
               type="button"
               onClick={() => onSelect(preset)}
-              className="flex flex-col items-start gap-1 rounded-xl border border-line bg-surface px-4 py-4 text-left transition hover:border-accent-2 hover:y2k-glow"
+              className="flex flex-col items-start gap-1 rounded-xl border border-line bg-surface px-4 py-4 text-left transition hover:border-accent hover:accent-shadow"
             >
               <span
                 className="mb-2 rounded-sm border border-line bg-surface-2"
@@ -66,7 +68,7 @@ export function CanvasSizeStep({ onSelect }: { onSelect: (preset: CanvasPreset) 
               onClick={() =>
                 onSelect({ id: "custom", label: "自訂尺寸", sublabel: `${customW} × ${customH}`, width: customW, height: customH })
               }
-              className="ml-auto rounded-md y2k-gradient px-4 py-2 text-sm font-semibold text-white transition hover:opacity-90"
+              className="ml-auto rounded-md accent-fill px-4 py-2 text-sm font-semibold transition hover:opacity-90"
             >
               使用這個尺寸
             </button>

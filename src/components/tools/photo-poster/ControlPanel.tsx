@@ -1,34 +1,51 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { BRACKET_OPTIONS, FONT_OPTIONS, SHAPE_OPTIONS } from "./constants";
-import type { BracketStyleId, CanvasPreset, Cutout, FontOptionId, ShapeId } from "./types";
+import { useState } from "react";
+import { BRACKET_OPTIONS, FONT_OPTIONS, LAYOUT_OPTIONS, SHAPE_OPTIONS } from "./constants";
+import type { BracketStyleId, CanvasPreset, Cutout, FontOptionId, LayoutModeId, PosterLayoutId, ShapeId } from "./types";
 
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-type TabId = "photo" | "caption" | "cutouts" | "text";
+type TabId = "photo" | "caption" | "cutouts" | "layout" | "text";
 const TABS: { id: TabId; label: string }[] = [
   { id: "photo", label: "照片" },
   { id: "caption", label: "文案" },
   { id: "cutouts", label: "挖空" },
+  { id: "layout", label: "版型" },
   { id: "text", label: "文字" },
 ];
 
 const fieldClass = "rounded-md border border-line bg-surface-2 px-2 py-1.5 text-ink";
+
+/** Small two-block diagram showing which arrangement a layout option is --
+ * the accent block stands in for the caption zone, the dim block for the
+ * photo zone, in the actual relative position/orientation they'll render. */
+function LayoutIcon({ id }: { id: PosterLayoutId | "random" }) {
+  if (id === "random") {
+    return (
+      <div className="grid h-7 w-10 grid-cols-2 grid-rows-2 gap-0.5 overflow-hidden rounded-sm">
+        <div className="bg-accent" />
+        <div className="bg-line" />
+        <div className="bg-line" />
+        <div className="bg-accent" />
+      </div>
+    );
+  }
+  const isRow = id === "split-left" || id === "split-right";
+  const textFirst = id === "text-top" || id === "split-left";
+  const blocks = textFirst ? ["bg-accent", "bg-line"] : ["bg-line", "bg-accent"];
+  return (
+    <div className={`flex h-7 w-10 gap-0.5 overflow-hidden rounded-sm ${isRow ? "flex-row" : "flex-col"}`}>
+      <div className={`flex-1 ${blocks[0]}`} />
+      <div className={`flex-1 ${blocks[1]}`} />
+    </div>
+  );
+}
 
 export interface ControlPanelProps {
   preset: CanvasPreset;
   onChangeSize: () => void;
 
   imageUrl: string | null;
-  onImageChange: (dataUrl: string) => void;
+  onRequestUpload: () => void;
 
   zoom: number;
   onZoomChange: (n: number) => void;
@@ -64,6 +81,9 @@ export interface ControlPanelProps {
   textColor: string;
   onTextColorChange: (hex: string) => void;
 
+  layoutMode: LayoutModeId;
+  onLayoutModeChange: (id: LayoutModeId) => void;
+
   onExport: () => void;
   exporting: boolean;
 }
@@ -73,7 +93,7 @@ export function ControlPanel(props: ControlPanelProps) {
     preset,
     onChangeSize,
     imageUrl,
-    onImageChange,
+    onRequestUpload,
     zoom,
     onZoomChange,
     caption,
@@ -104,29 +124,13 @@ export function ControlPanel(props: ControlPanelProps) {
     onTopBgColorChange,
     textColor,
     onTextColorChange,
+    layoutMode,
+    onLayoutModeChange,
     onExport,
     exporting,
   } = props;
 
   const [activeTab, setActiveTab] = useState<TabId>("photo");
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    function onPaste(e: ClipboardEvent) {
-      const item = Array.from(e.clipboardData?.items ?? []).find((i) => i.type.startsWith("image/"));
-      const file = item?.getAsFile();
-      if (file) readFileAsDataUrl(file).then(onImageChange);
-    }
-    window.addEventListener("paste", onPaste);
-    return () => window.removeEventListener("paste", onPaste);
-  }, [onImageChange]);
-
-  async function handleFileList(files: FileList | null) {
-    const file = files?.[0];
-    if (file && file.type.startsWith("image/")) {
-      onImageChange(await readFileAsDataUrl(file));
-    }
-  }
 
   return (
     <div className="flex h-full min-h-0 flex-col text-sm">
@@ -149,7 +153,7 @@ export function ControlPanel(props: ControlPanelProps) {
             type="button"
             onClick={() => setActiveTab(tab.id)}
             className={`flex-1 rounded-full px-3 py-1.5 text-xs font-medium transition ${
-              activeTab === tab.id ? "y2k-gradient text-white" : "text-ink-muted hover:bg-surface-2 hover:text-ink"
+              activeTab === tab.id ? "accent-fill" : "text-ink-muted hover:bg-surface-2 hover:text-ink"
             }`}
           >
             {tab.label}
@@ -160,43 +164,34 @@ export function ControlPanel(props: ControlPanelProps) {
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         {activeTab === "photo" && (
           <div className="flex flex-col gap-4">
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault();
-                void handleFileList(e.dataTransfer.files);
-              }}
-              className="flex cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-line bg-surface-2 px-4 py-6 text-center text-ink-muted transition hover:border-accent-2"
-            >
-              {imageUrl ? (
-                <span className="text-xs">已上傳，點擊或拖曳可更換圖片</span>
-              ) : (
-                <span className="text-xs">點擊上傳、拖曳圖片到此處，或直接 Ctrl/Cmd+V 貼上</span>
-              )}
-            </div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => void handleFileList(e.target.files)}
-            />
-            <label className="flex flex-col gap-1">
-              <span className="flex justify-between text-xs text-ink-muted">
-                <span>照片縮放</span>
-                <span>{zoom.toFixed(1)}x</span>
-              </span>
-              <input
-                type="range"
-                min={1}
-                max={3}
-                step={0.1}
-                value={zoom}
-                onChange={(e) => onZoomChange(Number(e.target.value))}
-              />
-              <span className="text-xs text-ink-faint">直接拖曳上方預覽的照片可調整顯示位置</span>
-            </label>
+            {imageUrl ? (
+              <>
+                <label className="flex flex-col gap-1">
+                  <span className="flex justify-between text-xs text-ink-muted">
+                    <span>照片縮放</span>
+                    <span>{zoom.toFixed(1)}x</span>
+                  </span>
+                  <input
+                    type="range"
+                    min={1}
+                    max={3}
+                    step={0.1}
+                    value={zoom}
+                    onChange={(e) => onZoomChange(Number(e.target.value))}
+                  />
+                  <span className="text-xs text-ink-faint">直接拖曳上方預覽的照片可調整顯示位置</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={onRequestUpload}
+                  className="rounded-md border border-line bg-surface-2 px-3 py-2 text-xs font-medium text-ink-muted transition hover:border-accent hover:text-accent"
+                >
+                  變更照片
+                </button>
+              </>
+            ) : (
+              <p className="text-xs text-ink-faint">請在上方預覽區塊點擊上傳照片，或直接拖曳、Ctrl/Cmd+V 貼上。</p>
+            )}
           </div>
         )}
 
@@ -207,7 +202,7 @@ export function ControlPanel(props: ControlPanelProps) {
               <button
                 type="button"
                 onClick={onRegenerateCaption}
-                className="rounded-full bg-accent-soft px-2 py-1 text-xs font-medium text-accent-2 hover:opacity-80"
+                className="rounded-full bg-accent-soft px-2 py-1 text-xs font-medium text-accent hover:opacity-80"
               >
                 重新生成
               </button>
@@ -265,7 +260,7 @@ export function ControlPanel(props: ControlPanelProps) {
                 type="button"
                 onClick={onToggleLocked}
                 className={`flex-1 rounded-md border px-3 py-1.5 text-xs font-medium ${
-                  locked ? "border-accent-2 bg-accent-soft text-accent-2" : "border-line bg-surface-2 text-ink-muted"
+                  locked ? "border-accent bg-accent-soft text-accent" : "border-line bg-surface-2 text-ink-muted"
                 }`}
               >
                 {locked ? "已鎖定" : "可拖曳"}
@@ -311,6 +306,40 @@ export function ControlPanel(props: ControlPanelProps) {
           </div>
         )}
 
+        {activeTab === "layout" && (
+          <div className="flex flex-col gap-2">
+            <p className="text-xs text-ink-muted">文字與照片的排版方式</p>
+            <div className="grid grid-cols-2 gap-2">
+              {LAYOUT_OPTIONS.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => onLayoutModeChange(opt.id)}
+                  className={`flex items-center gap-2 rounded-md border px-3 py-2 text-left text-xs font-medium transition ${
+                    layoutMode === opt.id ? "border-accent bg-accent-soft text-accent" : "border-line bg-surface-2 text-ink-muted"
+                  }`}
+                >
+                  <LayoutIcon id={opt.id} />
+                  {opt.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => onLayoutModeChange("random")}
+                className={`flex items-center gap-2 rounded-md border px-3 py-2 text-left text-xs font-medium transition ${
+                  layoutMode === "random" ? "border-accent bg-accent-soft text-accent" : "border-line bg-surface-2 text-ink-muted"
+                }`}
+              >
+                <LayoutIcon id="random" />
+                隨機
+              </button>
+            </div>
+            {layoutMode === "random" && (
+              <p className="text-xs text-ink-faint">每次按「隨機挖空」都會換一種排版方式。</p>
+            )}
+          </div>
+        )}
+
         {activeTab === "text" && (
           <div className="flex flex-col gap-3">
             <div className="grid grid-cols-2 gap-3">
@@ -350,7 +379,7 @@ export function ControlPanel(props: ControlPanelProps) {
               </span>
               <input
                 type="range"
-                min={16}
+                min={12}
                 max={64}
                 value={baseFontSizePx}
                 onChange={(e) => onFontSizeChange(Number(e.target.value))}
@@ -412,7 +441,7 @@ export function ControlPanel(props: ControlPanelProps) {
           type="button"
           disabled={!imageUrl || exporting}
           onClick={onExport}
-          className="y2k-glow w-full rounded-lg y2k-gradient px-4 py-2.5 font-semibold text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
+          className="accent-shadow w-full rounded-lg accent-fill px-4 py-2.5 font-semibold transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none"
         >
           {exporting ? "匯出中…" : "匯出 PNG"}
         </button>

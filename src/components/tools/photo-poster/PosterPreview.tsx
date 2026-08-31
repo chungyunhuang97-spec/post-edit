@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { TOP_ZONE_FRACTION } from "./constants";
-import type { BracketOption, Cutout, FontOption, ShapeOption } from "./types";
+import type { BracketOption, Cutout, FontOption, PosterLayoutId, ShapeOption } from "./types";
 import { buildCaptionTokens, clampPct } from "./useCutoutLayout";
 
 interface CoverGeometry {
@@ -69,6 +69,9 @@ export interface PosterPreviewProps {
   pan: { x: number; y: number };
   onPanChange: (next: { x: number; y: number }) => void;
   zoom: number;
+  layout: PosterLayoutId;
+  onRequestUpload: () => void;
+  onFilesDropped: (files: FileList) => void;
 }
 
 export function PosterPreview({
@@ -90,6 +93,9 @@ export function PosterPreview({
   pan,
   onPanChange,
   zoom,
+  layout,
+  onRequestUpload,
+  onFilesDropped,
 }: PosterPreviewProps) {
   const bottomZoneRef = useRef<HTMLDivElement>(null);
   const [boxSize, setBoxSize] = useState({ w: 0, h: 0 });
@@ -207,89 +213,103 @@ export function PosterPreview({
     };
   }
 
-  return (
-    <div
-      ref={canvasRef}
-      className="flex h-full w-full flex-col overflow-hidden"
-      style={{ backgroundColor: topBgColor }}
-    >
-      {/* Top zone: poetic caption with inline cropped-photo thumbnails.
-          Always exactly TOP_ZONE_FRACTION of the canvas -- a fixed
-          half-and-half split with the photo zone, regardless of caption
-          length -- a short caption is centered within its half rather
-          than shrinking the zone; overflow:hidden protects against an
-          exceptionally long one growing it (which would otherwise
-          squeeze the photo zone toward zero on a narrow phone screen,
-          where the fixed-px font size takes up proportionally more of
-          the box than on desktop). Mirrored in exportPoster.ts so the
-          two never disagree. */}
-      <div
-        data-role="top-zone"
-        className="flex flex-shrink-0 flex-wrap content-center items-center justify-center gap-x-1 gap-y-2 overflow-hidden px-[6%] py-[7%]"
-        style={{
-          color: textColor,
-          fontFamily: `${fontOption.cssVar}, ${fontOption.fallback}`,
-          fontSize: baseFontSizePx,
-          lineHeight: lineHeightMultiplier,
-          letterSpacing: `${letterSpacingPx}px`,
-          height: `${TOP_ZONE_FRACTION * 100}%`,
-        }}
-      >
-        {tokens.map((token, i) =>
-          token.kind === "word" ? (
-            <span key={i}>{token.text}</span>
-          ) : (
-            <span key={i} className="inline-flex items-center" style={{ fontSize: baseFontSizePx }}>
-              {bracket.open}
-              <span data-cutout-id={token.cutoutId} style={thumbStyle(cutoutById.get(token.cutoutId)!)} />
-              {bracket.close}
-            </span>
-          ),
-        )}
-      </div>
+  // The caption zone and photo zone can sit top/bottom (either order) or
+  // left/right (either order) -- the container just switches its flex
+  // direction and which zone renders first; the ResizeObserver on the
+  // photo zone measures whatever box it actually ends up with, so none of
+  // the drag/crop math above needs to know or care which orientation is
+  // active.
+  const isRow = layout === "split-left" || layout === "split-right";
+  const textFirst = layout === "text-top" || layout === "split-left";
 
-      {/* Bottom zone: the source photo with draggable cutout windows */}
-      <div ref={bottomZoneRef} className="relative min-h-0 flex-1 select-none touch-none bg-surface-2">
-        {imageUrl ? (
+  const textZone = (
+    <div
+      key="text"
+      data-role="top-zone"
+      className="flex flex-shrink-0 flex-wrap content-center items-center justify-center gap-x-1 gap-y-2 overflow-hidden px-[6%] py-[7%]"
+      style={{
+        color: textColor,
+        fontFamily: `${fontOption.cssVar}, ${fontOption.fallback}`,
+        fontSize: baseFontSizePx,
+        lineHeight: lineHeightMultiplier,
+        letterSpacing: `${letterSpacingPx}px`,
+        ...(isRow ? { width: `${TOP_ZONE_FRACTION * 100}%` } : { height: `${TOP_ZONE_FRACTION * 100}%` }),
+      }}
+    >
+      {tokens.map((token, i) =>
+        token.kind === "word" ? (
+          <span key={i}>{token.text}</span>
+        ) : (
+          <span key={i} className="inline-flex items-center" style={{ fontSize: baseFontSizePx }}>
+            {bracket.open}
+            <span data-cutout-id={token.cutoutId} style={thumbStyle(cutoutById.get(token.cutoutId)!)} />
+            {bracket.close}
+          </span>
+        ),
+      )}
+    </div>
+  );
+
+  const photoZone = (
+    <div key="photo" ref={bottomZoneRef} className="relative min-h-0 min-w-0 flex-1 select-none touch-none bg-surface-2">
+      {imageUrl ? (
+        <div
+          onPointerDown={handlePhotoPointerDown}
+          onPointerMove={handlePhotoPointerMove}
+          onPointerUp={handlePhotoPointerUp}
+          className="absolute inset-0"
+          style={{
+            backgroundImage: `url(${imageUrl})`,
+            backgroundSize: `${geometry.renderedW}px ${geometry.renderedH}px`,
+            backgroundPosition: `${geometry.offsetX}px ${geometry.offsetY}px`,
+            backgroundRepeat: "no-repeat",
+            cursor: locked ? "default" : "grab",
+          }}
+        />
+      ) : (
+        <div
+          onClick={onRequestUpload}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            onFilesDropped(e.dataTransfer.files);
+          }}
+          className="absolute inset-2 flex cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-line text-center text-ink-faint transition hover:border-accent hover:text-accent"
+        >
+          <span className="text-sm font-medium">點擊上傳照片</span>
+          <span className="text-xs">或拖曳圖片到此處，或 Ctrl/Cmd+V 貼上</span>
+        </div>
+      )}
+      {imageUrl &&
+        cutouts.map((cutout) => (
           <div
-            onPointerDown={handlePhotoPointerDown}
-            onPointerMove={handlePhotoPointerMove}
-            onPointerUp={handlePhotoPointerUp}
-            className="absolute inset-0"
+            key={cutout.id}
+            data-cutout-id={cutout.id}
+            onPointerDown={(e) => handlePointerDown(e, cutout)}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            className="absolute shadow-[0_0_0_1px_rgba(255,255,255,0.5),0_2px_10px_rgba(0,0,0,0.45)]"
             style={{
-              backgroundImage: `url(${imageUrl})`,
-              backgroundSize: `${geometry.renderedW}px ${geometry.renderedH}px`,
-              backgroundPosition: `${geometry.offsetX}px ${geometry.offsetY}px`,
-              backgroundRepeat: "no-repeat",
+              left: `${cutout.xPct}%`,
+              top: `${cutout.yPct}%`,
+              width: squareSizePx,
+              height: squareSizePx,
+              backgroundColor: cutout.color ?? topBgColor,
+              clipPath: shape.clipPath,
               cursor: locked ? "default" : "grab",
             }}
           />
-        ) : (
-          <div className="absolute inset-0 flex items-center justify-center text-sm text-ink-faint">
-            尚未上傳照片
-          </div>
-        )}
-        {imageUrl &&
-          cutouts.map((cutout) => (
-            <div
-              key={cutout.id}
-              data-cutout-id={cutout.id}
-              onPointerDown={(e) => handlePointerDown(e, cutout)}
-              onPointerMove={handlePointerMove}
-              onPointerUp={handlePointerUp}
-              className="absolute shadow-[0_0_0_1px_rgba(255,255,255,0.5),0_2px_10px_rgba(255,46,196,0.35)]"
-              style={{
-                left: `${cutout.xPct}%`,
-                top: `${cutout.yPct}%`,
-                width: squareSizePx,
-                height: squareSizePx,
-                backgroundColor: cutout.color ?? topBgColor,
-                clipPath: shape.clipPath,
-                cursor: locked ? "default" : "grab",
-              }}
-            />
-          ))}
-      </div>
+        ))}
+    </div>
+  );
+
+  return (
+    <div
+      ref={canvasRef}
+      className={`flex h-full w-full overflow-hidden ${isRow ? "flex-row" : "flex-col"}`}
+      style={{ backgroundColor: topBgColor }}
+    >
+      {textFirst ? [textZone, photoZone] : [photoZone, textZone]}
     </div>
   );
 }

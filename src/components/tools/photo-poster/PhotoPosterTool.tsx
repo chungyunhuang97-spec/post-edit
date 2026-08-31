@@ -1,16 +1,30 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BRACKET_OPTIONS, FONT_OPTIONS, generatePoeticCaption, SHAPE_OPTIONS } from "./constants";
+import { BRACKET_OPTIONS, FONT_OPTIONS, LAYOUT_OPTIONS, generatePoeticCaption, SHAPE_OPTIONS } from "./constants";
 import { CanvasSizeStep } from "./CanvasSizeStep";
 import { ControlPanel } from "./ControlPanel";
 import { renderPosterToCanvas } from "./exportPoster";
 import { PosterPreview } from "./PosterPreview";
-import type { BracketStyleId, CanvasPreset, Cutout, FontOptionId, ShapeId } from "./types";
+import type { BracketStyleId, CanvasPreset, Cutout, FontOptionId, LayoutModeId, PosterLayoutId, ShapeId } from "./types";
 import { randomizeCutouts, resetCutoutColors, resizeCutouts, setCutoutColor, wordCountOf } from "./useCutoutLayout";
 
 const DEFAULT_CUTOUT_COUNT = 6;
 const INITIAL_CAPTION = generatePoeticCaption();
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function pickRandomLayout(exclude?: PosterLayoutId): PosterLayoutId {
+  const pool = LAYOUT_OPTIONS.map((l) => l.id).filter((id) => id !== exclude);
+  return pool[Math.floor(Math.random() * pool.length)] ?? "text-top";
+}
 
 export function PhotoPosterTool() {
   const [preset, setPreset] = useState<CanvasPreset | null>(null);
@@ -32,8 +46,11 @@ export function PhotoPosterTool() {
   const [pan, setPan] = useState({ x: 0.5, y: 0.5 });
   const [zoom, setZoom] = useState(1);
   const [exporting, setExporting] = useState(false);
+  const [layoutMode, setLayoutMode] = useState<LayoutModeId>("text-top");
+  const [randomLayoutPick, setRandomLayoutPick] = useState<PosterLayoutId>(() => pickRandomLayout());
 
   const canvasRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // The preview frame is letterboxed by hand (rather than relying on CSS
   // aspect-ratio inside a shrinking flex item, which resolves
@@ -64,6 +81,32 @@ export function PhotoPosterTool() {
     setZoom(1);
   }, []);
 
+  // Upload/paste/drag handling lives here (not in PosterPreview or
+  // ControlPanel) since both need to trigger it: the empty photo zone in
+  // the preview is itself the upload target, and the "照片" tab's
+  // "變更照片" button re-opens the same file picker once an image exists.
+  const handleRequestUpload = useCallback(() => fileInputRef.current?.click(), []);
+
+  const handleFileList = useCallback(
+    async (files: FileList | null) => {
+      const file = files?.[0];
+      if (file && file.type.startsWith("image/")) {
+        handleImageChange(await readFileAsDataUrl(file));
+      }
+    },
+    [handleImageChange],
+  );
+
+  useEffect(() => {
+    function onPaste(e: ClipboardEvent) {
+      const item = Array.from(e.clipboardData?.items ?? []).find((i) => i.type.startsWith("image/"));
+      const file = item?.getAsFile();
+      if (file) readFileAsDataUrl(file).then(handleImageChange);
+    }
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [handleImageChange]);
+
   const handleCutoutCountChange = useCallback(
     (n: number) => {
       setCutouts((prev) => resizeCutouts(prev, n, wordCountOf(caption)));
@@ -76,9 +119,15 @@ export function PhotoPosterTool() {
   // this is the one "shuffle the cutouts" action rather than two separate
   // randomizers. Per-cutout color overrides are preserved (see
   // randomizeCutouts) since this is about placement, not color choices.
+  // When the layout picker is set to "random" this also re-rolls which
+  // concrete arrangement is showing, so one button reshuffles the whole
+  // look at once.
   const handleRandomize = useCallback(() => {
     setCutouts((prev) => randomizeCutouts(prev.length, wordCountOf(caption), prev));
-  }, [caption]);
+    if (layoutMode === "random") {
+      setRandomLayoutPick((prev) => pickRandomLayout(prev));
+    }
+  }, [caption, layoutMode]);
 
   const handleCutoutColorChange = useCallback((id: string, color: string) => {
     setCutouts((prev) => setCutoutColor(prev, id, color));
@@ -87,6 +136,8 @@ export function PhotoPosterTool() {
   const handleResetCutoutColors = useCallback(() => {
     setCutouts((prev) => resetCutoutColors(prev));
   }, []);
+
+  const effectiveLayout: PosterLayoutId = layoutMode === "random" ? randomLayoutPick : layoutMode;
 
   const handleExport = useCallback(async () => {
     if (!canvasRef.current || !preset || !imageUrl) return;
@@ -118,6 +169,7 @@ export function PhotoPosterTool() {
         previewWidthPx,
         pan,
         zoom,
+        layout: effectiveLayout,
       });
 
       const blob = await new Promise<Blob | null>((resolve) => posterCanvas.toBlob(resolve, "image/png"));
@@ -147,6 +199,7 @@ export function PhotoPosterTool() {
     scaleMultiplier,
     pan,
     zoom,
+    effectiveLayout,
   ]);
 
   if (!preset) {
@@ -178,8 +231,16 @@ export function PhotoPosterTool() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => void handleFileList(e.target.files)}
+      />
+
       <div ref={previewWrapRef} className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-3">
-        <div style={frameStyle} className="overflow-hidden rounded-lg shadow-[0_0_0_1px_rgba(255,255,255,0.06)]">
+        <div style={frameStyle} className="overflow-hidden rounded-lg shadow-[0_0_0_1px_rgba(255,255,255,0.08)]">
           <PosterPreview
             canvasRef={canvasRef}
             imageUrl={imageUrl}
@@ -199,6 +260,9 @@ export function PhotoPosterTool() {
             pan={pan}
             onPanChange={setPan}
             zoom={zoom}
+            layout={effectiveLayout}
+            onRequestUpload={handleRequestUpload}
+            onFilesDropped={handleFileList}
           />
         </div>
       </div>
@@ -208,7 +272,7 @@ export function PhotoPosterTool() {
           preset={preset}
           onChangeSize={() => setPreset(null)}
           imageUrl={imageUrl}
-          onImageChange={handleImageChange}
+          onRequestUpload={handleRequestUpload}
           zoom={zoom}
           onZoomChange={setZoom}
           caption={caption}
@@ -239,6 +303,8 @@ export function PhotoPosterTool() {
           onTopBgColorChange={setTopBgColor}
           textColor={textColor}
           onTextColorChange={setTextColor}
+          layoutMode={layoutMode}
+          onLayoutModeChange={setLayoutMode}
           onExport={handleExport}
           exporting={exporting}
         />
@@ -249,11 +315,9 @@ export function PhotoPosterTool() {
 
 export function PhotoPosterHeader() {
   return (
-    <div className="flex h-11 shrink-0 items-center border-b border-line bg-surface px-4">
-      <span
-        className="bg-clip-text text-sm font-semibold tracking-wide text-transparent y2k-gradient"
-      >
-        相片海報產生器
+    <div className="flex h-11 shrink-0 items-center justify-start border-b border-line bg-surface px-4 lg:justify-center">
+      <span className="text-sm font-normal tracking-wide text-accent" style={{ fontFamily: "var(--font-brand)" }}>
+        be4-ㄉ-post
       </span>
     </div>
   );

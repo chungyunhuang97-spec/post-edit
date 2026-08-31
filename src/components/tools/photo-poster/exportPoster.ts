@@ -1,5 +1,5 @@
 import { TOP_ZONE_FRACTION } from "./constants";
-import type { BracketOption, Cutout, ShapeOption } from "./types";
+import type { BracketOption, Cutout, PosterLayoutId, ShapeOption } from "./types";
 import { buildCaptionTokens } from "./useCutoutLayout";
 import { canvasShapePath } from "./shapes";
 
@@ -73,6 +73,42 @@ interface LineItem {
   width: number;
 }
 
+interface ZoneRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Mirrors PosterPreview.tsx's layout switch: the text zone and photo zone
+ * sit top/bottom (either order) or left/right (either order), always
+ * splitting the canvas by TOP_ZONE_FRACTION along whichever axis is the
+ * main axis for that orientation. */
+function computeZones(layout: PosterLayoutId, width: number, height: number): { text: ZoneRect; photo: ZoneRect } {
+  const isRow = layout === "split-left" || layout === "split-right";
+  const textFirst = layout === "text-top" || layout === "split-left";
+
+  if (isRow) {
+    const textW = width * TOP_ZONE_FRACTION;
+    const photoW = width - textW;
+    const textX = textFirst ? 0 : photoW;
+    const photoX = textFirst ? textW : 0;
+    return {
+      text: { x: textX, y: 0, w: textW, h: height },
+      photo: { x: photoX, y: 0, w: photoW, h: height },
+    };
+  }
+
+  const textH = height * TOP_ZONE_FRACTION;
+  const photoH = height - textH;
+  const textY = textFirst ? 0 : photoH;
+  const photoY = textFirst ? textH : 0;
+  return {
+    text: { x: 0, y: textY, w: width, h: textH },
+    photo: { x: 0, y: photoY, w: width, h: photoH },
+  };
+}
+
 export interface RenderPosterParams {
   width: number;
   height: number;
@@ -102,6 +138,8 @@ export interface RenderPosterParams {
   /** >=1 zoom beyond the minimum cover-fit scale, matching the live
    * preview's zoom slider (1 = no extra zoom). */
   zoom: number;
+  /** Which of the 4 concrete text/photo zone arrangements to render. */
+  layout: PosterLayoutId;
 }
 
 /** Renders the poster directly onto a <canvas>, entirely by hand --
@@ -131,6 +169,7 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
     previewWidthPx,
     pan,
     zoom,
+    layout,
   } = params;
 
   const scale = previewWidthPx ? width / previewWidthPx : 1;
@@ -139,8 +178,14 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   const letterSpacing = letterSpacingPx * scale;
   const gapX = 4 * scale; // matches Tailwind gap-x-1 (0.25rem)
   const gapY = 8 * scale; // matches Tailwind gap-y-2 (0.5rem)
-  const padX = width * 0.06; // matches px-[6%]
-  const padY = width * 0.07; // matches py-[7%] -- CSS % padding resolves against width, not height
+
+  const { text: textZone, photo: photoZone } = computeZones(layout, width, height);
+
+  // CSS `%` padding (px-[6%] / py-[7%], both horizontal AND vertical)
+  // resolves against the *containing block's width* -- here, the text
+  // zone's own rendered width, not the full canvas or the zone's height.
+  const padX = textZone.w * 0.06;
+  const padY = textZone.w * 0.07;
   const lineHeight = fontPx * lineHeightMultiplier;
 
   const canvas = document.createElement("canvas");
@@ -159,7 +204,7 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   const bracketCloseW = bracket.close ? ctx.measureText(bracket.close).width : 0;
 
   const tokens = buildCaptionTokens(caption, cutouts);
-  const availableWidth = Math.max(1, width - padX * 2);
+  const availableWidth = Math.max(1, textZone.w - padX * 2);
 
   // --- Layout pass: word-wrap the token stream (mirrors the live
   // preview's flex-wrap layout) without drawing anything yet, so we know
@@ -191,46 +236,39 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
 
   const rowHeights = lines.map((line) => (line.some((it) => it.kind === "cutout") ? Math.max(lineHeight, squarePx) : lineHeight));
   const totalTextHeight = rowHeights.reduce((a, b) => a + b, 0) + gapY * Math.max(0, lines.length - 1);
-  // Fixed the same way as the live preview (TOP_ZONE_FRACTION): always
-  // exactly half the canvas, regardless of caption length. A short
-  // caption is centered within the extra room below (see the vertical
-  // centering math in the paint pass); an exceptionally long one has its
-  // overflowing rows simply painted over by the photo drawn afterward
-  // (see the bottom-zone pass below), same as the DOM preview's
-  // overflow:hidden clip.
-  const topZoneHeight = height * TOP_ZONE_FRACTION;
-  const bottomZoneY = topZoneHeight;
-  const bottomZoneHeight = Math.max(0, height - topZoneHeight);
 
-  const bottomGeom = coverGeometry(width, bottomZoneHeight, img.naturalWidth, img.naturalHeight, pan, zoom);
+  const bottomGeom = coverGeometry(photoZone.w, photoZone.h, img.naturalWidth, img.naturalHeight, pan, zoom);
   const cutoutById = new Map(cutouts.map((c) => [c.id, c]));
 
   function cutoutImagePoint(cutout: Cutout) {
     // Same math as the live preview's thumbStyle: where this cutout's
-    // top-left point falls within the full *scaled* source image.
+    // top-left point falls within the full *scaled* source image --
+    // zone-local, since PosterPreview's ResizeObserver measurement (which
+    // this mirrors) is always relative to the photo zone's own box
+    // regardless of where that box sits on the canvas.
     return {
-      left: -bottomGeom.offsetX + (cutout.xPct / 100) * width,
-      top: -bottomGeom.offsetY + (cutout.yPct / 100) * bottomZoneHeight,
+      left: -bottomGeom.offsetX + (cutout.xPct / 100) * photoZone.w,
+      top: -bottomGeom.offsetY + (cutout.yPct / 100) * photoZone.h,
     };
   }
 
   // --- Paint pass: caption text + inline cropped thumbnails, both
   // horizontally centered per line and vertically centered as a block
-  // within the top zone (matching the live preview's content-center +
+  // within the text zone (matching the live preview's content-center +
   // justify-center) ---
   ctx.font = `${fontPx}px ${fontFamily}`;
   ctx.fillStyle = textColor;
   ctx.textBaseline = "alphabetic";
 
-  const contentBoxHeight = Math.max(0, topZoneHeight - padY * 2);
-  let rowY = padY + Math.max(0, (contentBoxHeight - totalTextHeight) / 2);
+  const contentBoxHeight = Math.max(0, textZone.h - padY * 2);
+  let rowY = textZone.y + padY + Math.max(0, (contentBoxHeight - totalTextHeight) / 2);
 
   lines.forEach((line, rowIndex) => {
     const rowHeight = rowHeights[rowIndex];
     const baselineY = rowY + rowHeight / 2 + fontPx * 0.35;
     const lastItem = line[line.length - 1];
     const lineWidth = lastItem.x + lastItem.width;
-    const lineStartX = padX + Math.max(0, (availableWidth - lineWidth) / 2);
+    const lineStartX = textZone.x + padX + Math.max(0, (availableWidth - lineWidth) / 2);
 
     line.forEach((item) => {
       const drawX = lineStartX + item.x;
@@ -245,7 +283,7 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
       if (bracket.open) ctx.fillText(bracket.open, drawX, baselineY);
       const imgX = drawX + bracketOpenW;
 
-      if (bottomZoneHeight > 0) {
+      if (photoZone.w > 0 && photoZone.h > 0) {
         const { left, top } = cutoutImagePoint(cutout);
         const path = canvasShapePath(shape.id, imgX, boxY, squarePx);
         ctx.save();
@@ -269,11 +307,11 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
     rowY += rowHeight + gapY;
   });
 
-  // --- Bottom zone: full photo, then the shaped mask "holes" ---
-  if (bottomZoneHeight > 0) {
+  // --- Photo zone: full photo, then the shaped mask "holes" ---
+  if (photoZone.w > 0 && photoZone.h > 0) {
     ctx.save();
     ctx.beginPath();
-    ctx.rect(0, bottomZoneY, width, bottomZoneHeight);
+    ctx.rect(photoZone.x, photoZone.y, photoZone.w, photoZone.h);
     ctx.clip();
     ctx.drawImage(
       img,
@@ -281,8 +319,8 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
       0,
       img.naturalWidth,
       img.naturalHeight,
-      bottomGeom.offsetX,
-      bottomZoneY + bottomGeom.offsetY,
+      photoZone.x + bottomGeom.offsetX,
+      photoZone.y + bottomGeom.offsetY,
       bottomGeom.renderedW,
       bottomGeom.renderedH,
     );
@@ -292,8 +330,8 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
     ctx.shadowBlur = 4 * scale;
     ctx.shadowOffsetY = 1 * scale;
     cutouts.forEach((cutout) => {
-      const x = (cutout.xPct / 100) * width;
-      const y = bottomZoneY + (cutout.yPct / 100) * bottomZoneHeight;
+      const x = photoZone.x + (cutout.xPct / 100) * photoZone.w;
+      const y = photoZone.y + (cutout.yPct / 100) * photoZone.h;
       ctx.fillStyle = cutout.color ?? topBgColor;
       ctx.fill(canvasShapePath(shape.id, x, y, squarePx));
     });

@@ -1,5 +1,5 @@
 import { clipPathFor } from "./shapes";
-import type { BracketOption, CanvasPreset, FontOption, ShapeId, ShapeOption } from "./types";
+import type { BracketOption, CanvasPreset, FontOption, LayoutOption, ShapeId, ShapeOption } from "./types";
 
 // The caption/thumbnail zone is always exactly this fraction of the canvas
 // height -- a fixed half-and-half split, regardless of how long the
@@ -19,11 +19,27 @@ export const CANVAS_PRESETS: CanvasPreset[] = [
   { id: "custom", label: "自訂尺寸", sublabel: "輸入你要的寬高", width: 1080, height: 1350 },
 ];
 
+// 10 fonts spanning 10 distinct type styles/categories -- each loaded as
+// its own next/font/google variable in layout.tsx, so switching here is
+// just swapping which CSS variable the caption zone's font-family reads.
 export const FONT_OPTIONS: FontOption[] = [
   { id: "sans", label: "Sans（無襯線 · 預設）", cssVar: "var(--font-geist-sans)", fallback: "sans-serif" },
-  { id: "display", label: "Display（標題感）", cssVar: "var(--font-outfit)", fallback: "sans-serif" },
   { id: "serif", label: "Serif（詩意襯線）", cssVar: "var(--font-newsreader)", fallback: "serif" },
   { id: "mono", label: "Mono（打字機）", cssVar: "var(--font-geist-mono)", fallback: "monospace" },
+  { id: "display-black", label: "Display Black（粗黑展示）", cssVar: "var(--font-archivo-black)", fallback: "sans-serif" },
+  { id: "elegant-serif", label: "Elegant Serif（優雅襯線）", cssVar: "var(--font-playfair-display)", fallback: "serif" },
+  { id: "geometric", label: "Geometric（幾何無襯線）", cssVar: "var(--font-space-grotesk)", fallback: "sans-serif" },
+  { id: "handwriting", label: "Handwriting（手寫風）", cssVar: "var(--font-caveat)", fallback: "cursive" },
+  { id: "condensed", label: "Condensed（窄體大寫）", cssVar: "var(--font-bebas-neue)", fallback: "sans-serif" },
+  { id: "script", label: "Script（花體手寫）", cssVar: "var(--font-pacifico)", fallback: "cursive" },
+  { id: "soft-serif", label: "Soft Serif（柔和襯線）", cssVar: "var(--font-fraunces)", fallback: "serif" },
+];
+
+export const LAYOUT_OPTIONS: LayoutOption[] = [
+  { id: "text-top", label: "文字在上" },
+  { id: "photo-top", label: "照片在上" },
+  { id: "split-left", label: "左右：文字在左" },
+  { id: "split-right", label: "左右：文字在右" },
 ];
 
 // Every cutout "window" -- both the mask on the photo and its matching
