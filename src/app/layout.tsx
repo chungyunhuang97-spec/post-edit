@@ -10,6 +10,7 @@ import {
   Bebas_Neue,
   Pacifico,
   Fraunces,
+  Orbitron,
 } from "next/font/google";
 import "./globals.css";
 
@@ -74,6 +75,15 @@ const fraunces = Fraunces({
   style: ["normal", "italic"],
 });
 
+// Used only for the "BE4 THE POST" brand wordmark (not one of the 10
+// selectable caption fonts) -- a geometric sci-fi display face for a
+// futuristic feel, distinct from Archivo Black's plain bold look.
+const orbitron = Orbitron({
+  variable: "--font-orbitron",
+  subsets: ["latin"],
+  weight: ["500", "700", "900"],
+});
+
 const fontVariables = [
   geistSans.variable,
   geistMono.variable,
@@ -85,6 +95,7 @@ const fontVariables = [
   bebasNeue.variable,
   pacifico.variable,
   fraunces.variable,
+  orbitron.variable,
 ].join(" ");
 
 export const metadata: Metadata = {

@@ -25,13 +25,20 @@ export function CanvasSizeStep({ onSelect }: { onSelect: (preset: CanvasPreset) 
               onClick={() => onSelect(preset)}
               className="flex flex-col items-start gap-1 rounded-xl border border-line bg-surface px-2.5 py-3 text-left transition hover:border-accent hover:accent-shadow sm:px-4 sm:py-4"
             >
-              <span
-                className="mb-2 rounded-sm border border-line bg-surface-2"
-                style={{
-                  width: 32,
-                  aspectRatio: `${preset.width} / ${preset.height}`,
-                }}
-              />
+              {/* Fixed-height slot so the icon's varying aspect ratio (a
+                  9:16 story preset is much taller than a 1:1 square one)
+                  never pushes the label down by a different amount from
+                  card to card -- the swatch bottom-aligns within it, and
+                  every card's label then starts at the same y position. */}
+              <span className="mb-2 flex h-10 items-end sm:h-14">
+                <span
+                  className="rounded-sm border border-line bg-surface-2"
+                  style={{
+                    width: 32,
+                    aspectRatio: `${preset.width} / ${preset.height}`,
+                  }}
+                />
+              </span>
               <span className="text-xs font-medium text-ink sm:text-sm">{preset.label}</span>
               <span className="text-[10px] text-ink-faint sm:text-xs">{preset.sublabel}</span>
             </button>

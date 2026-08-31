@@ -1,3 +1,4 @@
+import type { PhotoMood } from "./photoMood";
 import { clipPathFor } from "./shapes";
 import type { BracketOption, CanvasPreset, FontOption, LayoutOption, ShapeId, ShapeOption } from "./types";
 
@@ -89,36 +90,63 @@ export const BRACKET_OPTIONS: BracketOption[] = [
   { id: "none", label: "無括號", open: "", close: "" },
 ];
 
-// --- Local poetic-caption generator -----------------------------------
-// Stand-in for the "Gemini AI 重新生成" button in the reference tool.
-// This project doesn't wire up a live Gemini API key, so captions are
-// assembled from a small template + word-bank pool instead. Swap the body
-// of `generatePoeticCaption` for a real API call (e.g. a /api/caption
-// route) later without touching any caller.
+// --- Local social-caption generator -------------------------------------
+// Stand-in for a real "analyze the photo" AI caption suggestion -- that
+// needs a vision-capable model called from a server route with an API key,
+// which this project doesn't have credentials for. Instead, photoMood.ts
+// reads the uploaded photo's overall brightness/warmth/saturation on the
+// client (no server, no key) and this picks a matching pool of casual,
+// social-caption-style lines -- short and a little glib, not literary.
+// Swap the body of `generateSocialCaption` for a real API call later
+// (e.g. a /api/caption route) without touching any caller.
 
-const SUBJECTS = ["Warm lanterns", "Quiet mornings", "Slow rivers", "City lights", "Autumn leaves", "Ocean waves"];
-const VERBS = ["glow like", "drift like", "shimmer like", "settle like", "burn like", "fade like"];
-const OBJECTS = [
-  "luminous jewels",
-  "scattered stars",
-  "half-remembered dreams",
-  "flickering candles",
-  "distant fireflies",
-  "melting gold",
-];
-const SETTINGS = [
-  "against the deep indigo of a twilight sky",
-  "beneath a sky still holding onto daylight",
-  "over streets that never quite go quiet",
-  "through the hush of an early winter morning",
-  "along a horizon that keeps rewriting itself",
-  "inside a moment too soft to name",
-];
+const SOCIAL_CAPTIONS: Record<PhotoMood, string[]> = {
+  "bright-warm": [
+    "golden hour never disappoints honestly",
+    "sunshine and main character energy",
+    "warm days good company only",
+    "living for this golden light",
+    "soft light big feelings today",
+    "this is your sign to touch grass",
+  ],
+  "bright-cool": [
+    "fresh air clear mind today",
+    "cool tones calm nervous system",
+    "blue skies quiet kind of day",
+    "clean and crisp just like that",
+    "breathing room finally found it",
+    "no thoughts just this view",
+  ],
+  dark: [
+    "night mode fully activated tonight",
+    "moody lighting no notes honestly",
+    "late nights hit different lately",
+    "dim lights loud thoughts tonight",
+    "this is just the vibe now",
+    "low light high standards only",
+  ],
+  vibrant: [
+    "too many colors not enough time",
+    "loud colors louder personality today",
+    "main character in full color",
+    "vibrant chaos exactly my speed",
+    "color overload absolutely no regrets",
+    "not the colors doing the most",
+  ],
+  neutral: [
+    "just a normal day surprisingly good",
+    "little moments hit different lately",
+    "not much just vibing today",
+    "this is the whole mood",
+    "casual post no big deal",
+    "posting this because I can",
+  ],
+};
 
 function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-export function generatePoeticCaption(): string {
-  return `${pick(SUBJECTS)} ${pick(VERBS)} ${pick(OBJECTS)} ${pick(SETTINGS)}.`;
+export function generateSocialCaption(mood: PhotoMood): string {
+  return pick(SOCIAL_CAPTIONS[mood] ?? SOCIAL_CAPTIONS.neutral);
 }

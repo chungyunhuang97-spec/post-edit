@@ -2,13 +2,13 @@
 
 import { useState } from "react";
 import { BRACKET_OPTIONS, FONT_OPTIONS, LAYOUT_OPTIONS, SHAPE_OPTIONS } from "./constants";
-import type { BracketStyleId, CanvasPreset, Cutout, FontOptionId, LayoutModeId, PosterLayoutId, ShapeId } from "./types";
+import type { BracketStyleId, CanvasPreset, Cutout, FontOptionId, PosterLayoutId, ShapeId } from "./types";
 
-type TabId = "photo" | "caption" | "cutouts" | "layout" | "text";
+type TabId = "photo" | "caption" | "shapes" | "layout" | "text";
 const TABS: { id: TabId; label: string }[] = [
   { id: "photo", label: "照片" },
   { id: "caption", label: "文案" },
-  { id: "cutouts", label: "挖空" },
+  { id: "shapes", label: "圖形" },
   { id: "layout", label: "版型" },
   { id: "text", label: "文字" },
 ];
@@ -18,17 +18,7 @@ const fieldClass = "rounded-md border border-line bg-surface-2 px-2 py-1.5 text-
 /** Small two-block diagram showing which arrangement a layout option is --
  * the accent block stands in for the caption zone, the dim block for the
  * photo zone, in the actual relative position/orientation they'll render. */
-function LayoutIcon({ id }: { id: PosterLayoutId | "random" }) {
-  if (id === "random") {
-    return (
-      <div className="grid h-7 w-10 grid-cols-2 grid-rows-2 gap-0.5 overflow-hidden rounded-sm">
-        <div className="bg-accent" />
-        <div className="bg-line" />
-        <div className="bg-line" />
-        <div className="bg-accent" />
-      </div>
-    );
-  }
+function LayoutIcon({ id }: { id: PosterLayoutId }) {
   if (id === "overlay-h" || id === "overlay-v") {
     return (
       <div className="relative h-7 w-10 overflow-hidden rounded-sm bg-line">
@@ -60,6 +50,7 @@ export interface ControlPanelProps {
   caption: string;
   onCaptionChange: (text: string) => void;
   onRegenerateCaption: () => void;
+  suggestingCaption: boolean;
 
   cutouts: Cutout[];
   onCutoutCountChange: (n: number) => void;
@@ -88,8 +79,8 @@ export interface ControlPanelProps {
   textColor: string;
   onTextColorChange: (hex: string) => void;
 
-  layoutMode: LayoutModeId;
-  onLayoutModeChange: (id: LayoutModeId) => void;
+  layout: PosterLayoutId;
+  onLayoutChange: (id: PosterLayoutId) => void;
 
   onExport: () => void;
   exporting: boolean;
@@ -106,6 +97,7 @@ export function ControlPanel(props: ControlPanelProps) {
     caption,
     onCaptionChange,
     onRegenerateCaption,
+    suggestingCaption,
     cutouts,
     onCutoutCountChange,
     onCutoutColorChange,
@@ -131,8 +123,8 @@ export function ControlPanel(props: ControlPanelProps) {
     onTopBgColorChange,
     textColor,
     onTextColorChange,
-    layoutMode,
-    onLayoutModeChange,
+    layout,
+    onLayoutChange,
     onExport,
     exporting,
   } = props;
@@ -204,14 +196,14 @@ export function ControlPanel(props: ControlPanelProps) {
 
         {activeTab === "caption" && (
           <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-ink-muted">詩意描述</span>
+            <div className="flex items-center justify-end">
               <button
                 type="button"
                 onClick={onRegenerateCaption}
-                className="rounded-full bg-accent-soft px-2 py-1 text-xs font-medium text-accent hover:opacity-80"
+                disabled={suggestingCaption}
+                className="rounded-full bg-accent-soft px-2 py-1 text-xs font-medium text-accent hover:opacity-80 disabled:opacity-50"
               >
-                重新生成
+                {suggestingCaption ? "分析照片中…" : "重新生成"}
               </button>
             </div>
             <textarea
@@ -223,7 +215,7 @@ export function ControlPanel(props: ControlPanelProps) {
           </div>
         )}
 
-        {activeTab === "cutouts" && (
+        {activeTab === "shapes" && (
           <div className="flex flex-col gap-3">
             <label className="flex flex-col gap-1">
               <span className="flex justify-between text-xs text-ink-muted">
@@ -239,7 +231,7 @@ export function ControlPanel(props: ControlPanelProps) {
               />
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-xs text-ink-muted">挖空形狀</span>
+              <span className="text-xs text-ink-muted">圖形形狀</span>
               <select value={shapeId} onChange={(e) => onShapeChange(e.target.value as ShapeId)} className={fieldClass}>
                 {SHAPE_OPTIONS.map((s) => (
                   <option key={s.id} value={s.id}>
@@ -255,8 +247,8 @@ export function ControlPanel(props: ControlPanelProps) {
               </span>
               <input
                 type="range"
-                min={1}
-                max={4}
+                min={0.5}
+                max={2}
                 step={0.1}
                 value={scaleMultiplier}
                 onChange={(e) => onScaleChange(Number(e.target.value))}
@@ -277,12 +269,12 @@ export function ControlPanel(props: ControlPanelProps) {
                 onClick={onRandomize}
                 className="flex-1 rounded-md border border-line bg-surface-2 px-3 py-1.5 text-xs font-medium text-ink-muted hover:text-ink"
               >
-                隨機挖空
+                隨機圖形
               </button>
             </div>
             <div>
               <div className="mb-1.5 flex items-center justify-between">
-                <span className="text-xs text-ink-muted">個別挖空顏色</span>
+                <span className="text-xs text-ink-muted">個別圖形顏色</span>
                 <button
                   type="button"
                   onClick={onResetCutoutColors}
@@ -297,7 +289,7 @@ export function ControlPanel(props: ControlPanelProps) {
                     key={cutout.id}
                     className="relative flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-line bg-surface-2 text-[10px] text-ink-faint"
                     style={cutout.color ? { backgroundColor: cutout.color, borderColor: cutout.color } : undefined}
-                    title={`第 ${i + 1} 個挖空的顏色`}
+                    title={`第 ${i + 1} 個圖形的顏色`}
                   >
                     {!cutout.color && i + 1}
                     <input
@@ -314,36 +306,34 @@ export function ControlPanel(props: ControlPanelProps) {
         )}
 
         {activeTab === "layout" && (
-          <div className="flex flex-col gap-2">
-            <p className="text-xs text-ink-muted">文字與照片的排版方式</p>
-            <div className="grid grid-cols-2 gap-2">
-              {LAYOUT_OPTIONS.map((opt) => (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => onLayoutModeChange(opt.id)}
-                  className={`flex items-center gap-2 rounded-md border px-3 py-2 text-left text-xs font-medium transition ${
-                    layoutMode === opt.id ? "border-accent bg-accent-soft text-accent" : "border-line bg-surface-2 text-ink-muted"
-                  }`}
-                >
-                  <LayoutIcon id={opt.id} />
-                  {opt.label}
-                </button>
-              ))}
-              <button
-                type="button"
-                onClick={() => onLayoutModeChange("random")}
-                className={`flex items-center gap-2 rounded-md border px-3 py-2 text-left text-xs font-medium transition ${
-                  layoutMode === "random" ? "border-accent bg-accent-soft text-accent" : "border-line bg-surface-2 text-ink-muted"
-                }`}
-              >
-                <LayoutIcon id="random" />
-                隨機
-              </button>
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <p className="text-xs text-ink-muted">文字與照片的排版方式</p>
+              <div className="grid grid-cols-2 gap-2">
+                {LAYOUT_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => onLayoutChange(opt.id)}
+                    className={`flex items-center gap-2 rounded-md border px-3 py-2 text-left text-xs font-medium transition ${
+                      layout === opt.id ? "border-accent bg-accent-soft text-accent" : "border-line bg-surface-2 text-ink-muted"
+                    }`}
+                  >
+                    <LayoutIcon id={opt.id} />
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
             </div>
-            {layoutMode === "random" && (
-              <p className="text-xs text-ink-faint">每次按「隨機挖空」都會換一種排版方式。</p>
-            )}
+            <label className="flex flex-col gap-1 text-xs text-ink-muted">
+              上半部背景色
+              <input
+                type="color"
+                value={topBgColor}
+                onChange={(e) => onTopBgColorChange(e.target.value)}
+                className="h-8 w-full rounded-md border border-line bg-surface-2"
+              />
+            </label>
           </div>
         )}
 
@@ -387,7 +377,7 @@ export function ControlPanel(props: ControlPanelProps) {
               <input
                 type="range"
                 min={12}
-                max={64}
+                max={28}
                 value={baseFontSizePx}
                 onChange={(e) => onFontSizeChange(Number(e.target.value))}
               />
@@ -419,26 +409,15 @@ export function ControlPanel(props: ControlPanelProps) {
                 onChange={(e) => onLetterSpacingChange(Number(e.target.value))}
               />
             </label>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="flex flex-col gap-1 text-xs text-ink-muted">
-                上半部背景色
-                <input
-                  type="color"
-                  value={topBgColor}
-                  onChange={(e) => onTopBgColorChange(e.target.value)}
-                  className="h-8 w-full rounded-md border border-line bg-surface-2"
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-xs text-ink-muted">
-                文字顏色
-                <input
-                  type="color"
-                  value={textColor}
-                  onChange={(e) => onTextColorChange(e.target.value)}
-                  className="h-8 w-full rounded-md border border-line bg-surface-2"
-                />
-              </label>
-            </div>
+            <label className="flex flex-col gap-1 text-xs text-ink-muted">
+              文字顏色
+              <input
+                type="color"
+                value={textColor}
+                onChange={(e) => onTextColorChange(e.target.value)}
+                className="h-8 w-full rounded-md border border-line bg-surface-2"
+              />
+            </label>
           </div>
         )}
       </div>

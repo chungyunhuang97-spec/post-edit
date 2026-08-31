@@ -93,7 +93,3 @@ export interface LayoutOption {
   id: PosterLayoutId;
   label: string;
 }
-
-/** User-facing selector state: the 4 concrete layouts, plus "random" which
- * re-rolls to one of them each time the cutouts are randomized. */
-export type LayoutModeId = PosterLayoutId | "random";

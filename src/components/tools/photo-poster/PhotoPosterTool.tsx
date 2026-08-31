@@ -1,16 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BRACKET_OPTIONS, FONT_OPTIONS, LAYOUT_OPTIONS, generatePoeticCaption, SHAPE_OPTIONS } from "./constants";
+import { BRACKET_OPTIONS, FONT_OPTIONS, SHAPE_OPTIONS, generateSocialCaption } from "./constants";
 import { CanvasSizeStep } from "./CanvasSizeStep";
 import { ControlPanel } from "./ControlPanel";
 import { renderPosterToCanvas } from "./exportPoster";
+import { analyzePhotoMood } from "./photoMood";
 import { PosterPreview } from "./PosterPreview";
-import type { BracketStyleId, CanvasPreset, Cutout, FontOptionId, LayoutModeId, PosterLayoutId, ShapeId } from "./types";
+import type { BracketStyleId, CanvasPreset, Cutout, FontOptionId, PosterLayoutId, ShapeId } from "./types";
 import { randomizeCutouts, resetCutoutColors, resizeCutouts, setCutoutColor, wordCountOf } from "./useCutoutLayout";
 
 const DEFAULT_CUTOUT_COUNT = 6;
-const INITIAL_CAPTION = generatePoeticCaption();
+const INITIAL_CAPTION = generateSocialCaption("neutral");
 
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -19,11 +20,6 @@ function readFileAsDataUrl(file: File): Promise<string> {
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
-}
-
-function pickRandomLayout(exclude?: PosterLayoutId): PosterLayoutId {
-  const pool = LAYOUT_OPTIONS.map((l) => l.id).filter((id) => id !== exclude);
-  return pool[Math.floor(Math.random() * pool.length)] ?? "text-top";
 }
 
 export function PhotoPosterTool() {
@@ -35,8 +31,8 @@ export function PhotoPosterTool() {
   );
   const [locked, setLocked] = useState(false);
   const [shapeId, setShapeId] = useState<ShapeId>("square");
-  const [scaleMultiplier, setScaleMultiplier] = useState(2);
-  const [baseFontSizePx, setBaseFontSizePx] = useState(32);
+  const [scaleMultiplier, setScaleMultiplier] = useState(0.5);
+  const [baseFontSizePx, setBaseFontSizePx] = useState(16);
   const [lineHeightMultiplier, setLineHeightMultiplier] = useState(1.5);
   const [letterSpacingPx, setLetterSpacingPx] = useState(0);
   const [fontOptionId, setFontOptionId] = useState<FontOptionId>("sans");
@@ -46,8 +42,8 @@ export function PhotoPosterTool() {
   const [pan, setPan] = useState({ x: 0.5, y: 0.5 });
   const [zoom, setZoom] = useState(1);
   const [exporting, setExporting] = useState(false);
-  const [layoutMode, setLayoutMode] = useState<LayoutModeId>("text-top");
-  const [randomLayoutPick, setRandomLayoutPick] = useState<PosterLayoutId>(() => pickRandomLayout());
+  const [layout, setLayout] = useState<PosterLayoutId>("text-top");
+  const [suggestingCaption, setSuggestingCaption] = useState(false);
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -130,15 +126,9 @@ export function PhotoPosterTool() {
   // this is the one "shuffle the cutouts" action rather than two separate
   // randomizers. Per-cutout color overrides are preserved (see
   // randomizeCutouts) since this is about placement, not color choices.
-  // When the layout picker is set to "random" this also re-rolls which
-  // concrete arrangement is showing, so one button reshuffles the whole
-  // look at once.
   const handleRandomize = useCallback(() => {
     setCutouts((prev) => randomizeCutouts(prev.length, wordCountOf(caption), prev));
-    if (layoutMode === "random") {
-      setRandomLayoutPick((prev) => pickRandomLayout(prev));
-    }
-  }, [caption, layoutMode]);
+  }, [caption]);
 
   const handleCutoutColorChange = useCallback((id: string, color: string) => {
     setCutouts((prev) => setCutoutColor(prev, id, color));
@@ -148,7 +138,20 @@ export function PhotoPosterTool() {
     setCutouts((prev) => resetCutoutColors(prev));
   }, []);
 
-  const effectiveLayout: PosterLayoutId = layoutMode === "random" ? randomLayoutPick : layoutMode;
+  // Suggests a new caption in a casual, social-caption tone -- when a
+  // photo is uploaded, a quick client-side canvas analysis (brightness /
+  // warmth / saturation, no server or API key involved) picks a mood
+  // bucket that steers word choice, so a bright warm photo and a dark
+  // moody one don't get the same generic suggestion.
+  const handleRegenerateCaption = useCallback(async () => {
+    setSuggestingCaption(true);
+    try {
+      const mood = imageUrl ? await analyzePhotoMood(imageUrl) : "neutral";
+      setCaption(generateSocialCaption(mood));
+    } finally {
+      setSuggestingCaption(false);
+    }
+  }, [imageUrl]);
 
   const handleExport = useCallback(async () => {
     if (!canvasRef.current || !preset || !imageUrl) return;
@@ -180,7 +183,7 @@ export function PhotoPosterTool() {
         previewWidthPx,
         pan,
         zoom,
-        layout: effectiveLayout,
+        layout,
       });
 
       const blob = await new Promise<Blob | null>((resolve) => posterCanvas.toBlob(resolve, "image/png"));
@@ -210,7 +213,7 @@ export function PhotoPosterTool() {
     scaleMultiplier,
     pan,
     zoom,
-    effectiveLayout,
+    layout,
   ]);
 
   if (!preset) {
@@ -275,7 +278,7 @@ export function PhotoPosterTool() {
             pan={pan}
             onPanChange={setPan}
             zoom={zoom}
-            layout={effectiveLayout}
+            layout={layout}
             onRequestUpload={handleRequestUpload}
             onFilesDropped={handleFileList}
           />
@@ -292,7 +295,8 @@ export function PhotoPosterTool() {
           onZoomChange={setZoom}
           caption={caption}
           onCaptionChange={setCaption}
-          onRegenerateCaption={() => setCaption(generatePoeticCaption())}
+          onRegenerateCaption={handleRegenerateCaption}
+          suggestingCaption={suggestingCaption}
           cutouts={cutouts}
           onCutoutCountChange={handleCutoutCountChange}
           onCutoutColorChange={handleCutoutColorChange}
@@ -318,8 +322,8 @@ export function PhotoPosterTool() {
           onTopBgColorChange={setTopBgColor}
           textColor={textColor}
           onTextColorChange={setTextColor}
-          layoutMode={layoutMode}
-          onLayoutModeChange={setLayoutMode}
+          layout={layout}
+          onLayoutChange={setLayout}
           onExport={handleExport}
           exporting={exporting}
         />
