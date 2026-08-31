@@ -83,9 +83,11 @@ export interface Cutout {
  * referencing a Cutout by id. */
 export type CaptionToken = { kind: "word"; text: string } | { kind: "cutout"; cutoutId: string };
 
-/** The 4 concrete arrangements the poster's caption zone and photo zone
- * can be placed in relative to each other. */
-export type PosterLayoutId = "text-top" | "photo-top" | "split-left" | "split-right";
+/** The concrete arrangements the poster's caption zone and photo zone can
+ * be placed in relative to each other: 4 non-overlapping splits, plus 2
+ * "overlay" layouts where the photo fills the whole canvas and the
+ * caption sits as an opaque band across the middle. */
+export type PosterLayoutId = "text-top" | "photo-top" | "split-left" | "split-right" | "overlay-h" | "overlay-v";
 
 export interface LayoutOption {
   id: PosterLayoutId;

@@ -88,7 +88,7 @@ const fontVariables = [
 ].join(" ");
 
 export const metadata: Metadata = {
-  title: "be4-ㄉ-post",
+  title: "BE4 THE POST",
   description: "上傳一張照片，拖曳挖空方塊，生成帶有詩意文案的社群海報。",
 };
 

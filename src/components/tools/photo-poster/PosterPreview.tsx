@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { TOP_ZONE_FRACTION } from "./constants";
+import { OVERLAY_BAND_FRACTION, TOP_ZONE_FRACTION } from "./constants";
 import type { BracketOption, Cutout, FontOption, PosterLayoutId, ShapeOption } from "./types";
 import { buildCaptionTokens, clampPct } from "./useCutoutLayout";
 
@@ -213,27 +213,38 @@ export function PosterPreview({
     };
   }
 
-  // The caption zone and photo zone can sit top/bottom (either order) or
-  // left/right (either order) -- the container just switches its flex
-  // direction and which zone renders first; the ResizeObserver on the
+  // The caption zone and photo zone can sit top/bottom (either order),
+  // left/right (either order), or -- for the two "overlay" layouts -- the
+  // photo fills the whole canvas with the caption as an absolutely
+  // positioned band on top of it. Either way the ResizeObserver on the
   // photo zone measures whatever box it actually ends up with, so none of
-  // the drag/crop math above needs to know or care which orientation is
+  // the drag/crop math above needs to know or care which arrangement is
   // active.
+  const isOverlay = layout === "overlay-h" || layout === "overlay-v";
   const isRow = layout === "split-left" || layout === "split-right";
   const textFirst = layout === "text-top" || layout === "split-left";
+
+  const bandInset = `${((1 - OVERLAY_BAND_FRACTION) / 2) * 100}%`;
+  const overlayTextStyle: React.CSSProperties = isOverlay
+    ? layout === "overlay-h"
+      ? { position: "absolute", left: 0, right: 0, top: bandInset, height: `${OVERLAY_BAND_FRACTION * 100}%`, backgroundColor: topBgColor }
+      : { position: "absolute", top: 0, bottom: 0, left: bandInset, width: `${OVERLAY_BAND_FRACTION * 100}%`, backgroundColor: topBgColor }
+    : isRow
+      ? { width: `${TOP_ZONE_FRACTION * 100}%` }
+      : { height: `${TOP_ZONE_FRACTION * 100}%` };
 
   const textZone = (
     <div
       key="text"
       data-role="top-zone"
-      className="flex flex-shrink-0 flex-wrap content-center items-center justify-center gap-x-1 gap-y-2 overflow-hidden px-[6%] py-[7%]"
+      className={`flex flex-shrink-0 flex-wrap content-center items-center justify-center gap-x-1 gap-y-2 overflow-hidden px-[6%] py-[7%] ${isOverlay ? "z-10" : ""}`}
       style={{
         color: textColor,
         fontFamily: `${fontOption.cssVar}, ${fontOption.fallback}`,
         fontSize: baseFontSizePx,
         lineHeight: lineHeightMultiplier,
         letterSpacing: `${letterSpacingPx}px`,
-        ...(isRow ? { width: `${TOP_ZONE_FRACTION * 100}%` } : { height: `${TOP_ZONE_FRACTION * 100}%` }),
+        ...overlayTextStyle,
       }}
     >
       {tokens.map((token, i) =>
@@ -251,7 +262,11 @@ export function PosterPreview({
   );
 
   const photoZone = (
-    <div key="photo" ref={bottomZoneRef} className="relative min-h-0 min-w-0 flex-1 select-none touch-none bg-surface-2">
+    <div
+      key="photo"
+      ref={bottomZoneRef}
+      className="relative min-h-0 min-w-0 flex-1 select-none touch-none bg-surface-2"
+    >
       {imageUrl ? (
         <div
           onPointerDown={handlePhotoPointerDown}
@@ -300,8 +315,27 @@ export function PosterPreview({
             }}
           />
         ))}
+      {/* Overlay layouts nest the text band *inside* the photo zone (as its
+          absolutely positioned child) rather than as a canvasEl-level
+          sibling -- keeping the photo zone the sole normal in-flow child of
+          canvasEl in every layout, overlay included. A canvasEl with no
+          in-flow children at all (which an overlay-as-sibling structure
+          would produce, since both zones would need position:absolute to
+          overlap) left the aspect-ratio-driven ancestor frame with no
+          content to size against and it collapsed to 0x0 -- confirmed by
+          bisecting against the working non-overlay structure, which always
+          keeps a normal in-flow child here. */}
+      {isOverlay && textZone}
     </div>
   );
+
+  if (isOverlay) {
+    return (
+      <div ref={canvasRef} className="flex h-full w-full overflow-hidden" style={{ backgroundColor: topBgColor }}>
+        {photoZone}
+      </div>
+    );
+  }
 
   return (
     <div

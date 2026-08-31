@@ -12,6 +12,11 @@ import type { BracketOption, CanvasPreset, FontOption, LayoutOption, ShapeId, Sh
 // exporter (exportPoster.ts) so they can't disagree.
 export const TOP_ZONE_FRACTION = 0.5;
 
+// For the two "overlay" layouts (photo fills the whole canvas, caption
+// sits as an opaque band across the middle) -- how much of the canvas the
+// band covers, centered on the middle third.
+export const OVERLAY_BAND_FRACTION = 0.34;
+
 export const CANVAS_PRESETS: CanvasPreset[] = [
   { id: "ig-post", label: "IG 貼文", sublabel: "1080 × 1350 · 4:5", width: 1080, height: 1350 },
   { id: "ig-story", label: "IG 限時動態 / Reels", sublabel: "1080 × 1920 · 9:16", width: 1080, height: 1920 },
@@ -40,6 +45,8 @@ export const LAYOUT_OPTIONS: LayoutOption[] = [
   { id: "photo-top", label: "照片在上" },
   { id: "split-left", label: "左右：文字在左" },
   { id: "split-right", label: "左右：文字在右" },
+  { id: "overlay-h", label: "文字橫跨中間" },
+  { id: "overlay-v", label: "文字直跨中間" },
 ];
 
 // Every cutout "window" -- both the mask on the photo and its matching

@@ -1,4 +1,4 @@
-import { TOP_ZONE_FRACTION } from "./constants";
+import { OVERLAY_BAND_FRACTION, TOP_ZONE_FRACTION } from "./constants";
 import type { BracketOption, Cutout, PosterLayoutId, ShapeOption } from "./types";
 import { buildCaptionTokens } from "./useCutoutLayout";
 import { canvasShapePath } from "./shapes";
@@ -81,10 +81,25 @@ interface ZoneRect {
 }
 
 /** Mirrors PosterPreview.tsx's layout switch: the text zone and photo zone
- * sit top/bottom (either order) or left/right (either order), always
- * splitting the canvas by TOP_ZONE_FRACTION along whichever axis is the
- * main axis for that orientation. */
+ * sit top/bottom (either order), left/right (either order), or -- for the
+ * two "overlay" layouts -- the photo fills the entire canvas and the text
+ * zone is a centered band that gets painted on top of it afterward. */
 function computeZones(layout: PosterLayoutId, width: number, height: number): { text: ZoneRect; photo: ZoneRect } {
+  if (layout === "overlay-h") {
+    const bandH = height * OVERLAY_BAND_FRACTION;
+    return {
+      text: { x: 0, y: (height - bandH) / 2, w: width, h: bandH },
+      photo: { x: 0, y: 0, w: width, h: height },
+    };
+  }
+  if (layout === "overlay-v") {
+    const bandW = width * OVERLAY_BAND_FRACTION;
+    return {
+      text: { x: (width - bandW) / 2, y: 0, w: bandW, h: height },
+      photo: { x: 0, y: 0, w: width, h: height },
+    };
+  }
+
   const isRow = layout === "split-left" || layout === "split-right";
   const textFirst = layout === "text-top" || layout === "split-left";
 
@@ -138,7 +153,7 @@ export interface RenderPosterParams {
   /** >=1 zoom beyond the minimum cover-fit scale, matching the live
    * preview's zoom slider (1 = no extra zoom). */
   zoom: number;
-  /** Which of the 4 concrete text/photo zone arrangements to render. */
+  /** Which of the 6 concrete text/photo zone arrangements to render. */
   layout: PosterLayoutId;
 }
 
@@ -179,6 +194,7 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   const gapX = 4 * scale; // matches Tailwind gap-x-1 (0.25rem)
   const gapY = 8 * scale; // matches Tailwind gap-y-2 (0.5rem)
 
+  const isOverlay = layout === "overlay-h" || layout === "overlay-v";
   const { text: textZone, photo: photoZone } = computeZones(layout, width, height);
 
   // CSS `%` padding (px-[6%] / py-[7%], both horizontal AND vertical)
@@ -252,6 +268,50 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
     };
   }
 
+  // --- Photo zone: full photo, then the shaped mask "holes" -- painted
+  // *before* the text pass so that for the overlay layouts (where the
+  // text zone's band physically sits on top of the photo zone, unlike the
+  // 4 non-overlapping splits where paint order doesn't matter) the text
+  // band's opaque fill and the caption text both end up on top of the
+  // photo, not underneath it. ---
+  if (photoZone.w > 0 && photoZone.h > 0) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(photoZone.x, photoZone.y, photoZone.w, photoZone.h);
+    ctx.clip();
+    ctx.drawImage(
+      img,
+      0,
+      0,
+      img.naturalWidth,
+      img.naturalHeight,
+      photoZone.x + bottomGeom.offsetX,
+      photoZone.y + bottomGeom.offsetY,
+      bottomGeom.renderedW,
+      bottomGeom.renderedH,
+    );
+    ctx.restore();
+
+    ctx.shadowColor = "rgba(0,0,0,0.25)";
+    ctx.shadowBlur = 4 * scale;
+    ctx.shadowOffsetY = 1 * scale;
+    cutouts.forEach((cutout) => {
+      const x = photoZone.x + (cutout.xPct / 100) * photoZone.w;
+      const y = photoZone.y + (cutout.yPct / 100) * photoZone.h;
+      ctx.fillStyle = cutout.color ?? topBgColor;
+      ctx.fill(canvasShapePath(shape.id, x, y, squarePx));
+    });
+    ctx.shadowColor = "transparent";
+  }
+
+  // The overlay layouts have no separate background fill under the text
+  // band (the initial full-canvas fill is now covered by the photo drawn
+  // above), so paint an opaque band there before the text sits on top.
+  if (isOverlay) {
+    ctx.fillStyle = topBgColor;
+    ctx.fillRect(textZone.x, textZone.y, textZone.w, textZone.h);
+  }
+
   // --- Paint pass: caption text + inline cropped thumbnails, both
   // horizontally centered per line and vertically centered as a block
   // within the text zone (matching the live preview's content-center +
@@ -259,6 +319,17 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   ctx.font = `${fontPx}px ${fontFamily}`;
   ctx.fillStyle = textColor;
   ctx.textBaseline = "alphabetic";
+
+  // Clip to the text zone's own bounds, matching the live preview's
+  // overflow:hidden on that same box -- without this, a caption long
+  // enough to overflow its zone would keep drawing past it (bleeding into
+  // the photo zone below in the 4-way splits, or floating unbacked over
+  // the photo in the overlay layouts, since the opaque band fill above
+  // only covers the zone's own rect).
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(textZone.x, textZone.y, textZone.w, textZone.h);
+  ctx.clip();
 
   const contentBoxHeight = Math.max(0, textZone.h - padY * 2);
   let rowY = textZone.y + padY + Math.max(0, (contentBoxHeight - totalTextHeight) / 2);
@@ -307,36 +378,7 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
     rowY += rowHeight + gapY;
   });
 
-  // --- Photo zone: full photo, then the shaped mask "holes" ---
-  if (photoZone.w > 0 && photoZone.h > 0) {
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(photoZone.x, photoZone.y, photoZone.w, photoZone.h);
-    ctx.clip();
-    ctx.drawImage(
-      img,
-      0,
-      0,
-      img.naturalWidth,
-      img.naturalHeight,
-      photoZone.x + bottomGeom.offsetX,
-      photoZone.y + bottomGeom.offsetY,
-      bottomGeom.renderedW,
-      bottomGeom.renderedH,
-    );
-    ctx.restore();
-
-    ctx.shadowColor = "rgba(0,0,0,0.25)";
-    ctx.shadowBlur = 4 * scale;
-    ctx.shadowOffsetY = 1 * scale;
-    cutouts.forEach((cutout) => {
-      const x = photoZone.x + (cutout.xPct / 100) * photoZone.w;
-      const y = photoZone.y + (cutout.yPct / 100) * photoZone.h;
-      ctx.fillStyle = cutout.color ?? topBgColor;
-      ctx.fill(canvasShapePath(shape.id, x, y, squarePx));
-    });
-    ctx.shadowColor = "transparent";
-  }
+  ctx.restore();
 
   return canvas;
 }

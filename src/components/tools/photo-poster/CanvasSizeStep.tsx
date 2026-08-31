@@ -10,30 +10,30 @@ export function CanvasSizeStep({ onSelect }: { onSelect: (preset: CanvasPreset) 
 
   return (
     <div className="flex h-full min-h-0 flex-col items-center justify-center overflow-y-auto bg-bg px-4 py-8">
-      <div className="mx-auto flex w-full max-w-xl flex-col gap-6">
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
         <div>
           <h1 className="text-2xl text-accent" style={{ fontFamily: "var(--font-brand)" }}>
-            be4-ㄉ-post
+            BE4 THE POST
           </h1>
           <p className="mt-2 text-sm text-ink-muted">先選一個畫布尺寸，之後隨時可以再回來這裡調整。</p>
         </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
           {CANVAS_PRESETS.filter((p) => p.id !== "custom").map((preset) => (
             <button
               key={preset.id}
               type="button"
               onClick={() => onSelect(preset)}
-              className="flex flex-col items-start gap-1 rounded-xl border border-line bg-surface px-4 py-4 text-left transition hover:border-accent hover:accent-shadow"
+              className="flex flex-col items-start gap-1 rounded-xl border border-line bg-surface px-2.5 py-3 text-left transition hover:border-accent hover:accent-shadow sm:px-4 sm:py-4"
             >
               <span
                 className="mb-2 rounded-sm border border-line bg-surface-2"
                 style={{
-                  width: 40,
+                  width: 32,
                   aspectRatio: `${preset.width} / ${preset.height}`,
                 }}
               />
-              <span className="font-medium text-ink">{preset.label}</span>
-              <span className="text-xs text-ink-faint">{preset.sublabel}</span>
+              <span className="text-xs font-medium text-ink sm:text-sm">{preset.label}</span>
+              <span className="text-[10px] text-ink-faint sm:text-xs">{preset.sublabel}</span>
             </button>
           ))}
         </div>

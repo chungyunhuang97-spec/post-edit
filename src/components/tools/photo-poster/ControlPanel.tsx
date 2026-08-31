@@ -29,6 +29,13 @@ function LayoutIcon({ id }: { id: PosterLayoutId | "random" }) {
       </div>
     );
   }
+  if (id === "overlay-h" || id === "overlay-v") {
+    return (
+      <div className="relative h-7 w-10 overflow-hidden rounded-sm bg-line">
+        <div className={id === "overlay-h" ? "absolute inset-x-0 top-[33%] h-[34%] bg-accent" : "absolute inset-y-0 left-[33%] w-[34%] bg-accent"} />
+      </div>
+    );
+  }
   const isRow = id === "split-left" || id === "split-right";
   const textFirst = id === "text-top" || id === "split-left";
   const blocks = textFirst ? ["bg-accent", "bg-line"] : ["bg-line", "bg-accent"];

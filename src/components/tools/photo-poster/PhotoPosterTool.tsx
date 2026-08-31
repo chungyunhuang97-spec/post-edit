@@ -52,16 +52,27 @@ export function PhotoPosterTool() {
   const canvasRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // The preview frame is letterboxed by hand (rather than relying on CSS
-  // aspect-ratio inside a shrinking flex item, which resolves
-  // inconsistently once max-width/max-height both start constraining it)
-  // -- measure the available box and compute an exact pixel size that
-  // preserves the poster's aspect ratio, same ResizeObserver pattern
-  // PosterPreview already uses for its own bottom-zone measurement.
-  const previewWrapRef = useRef<HTMLDivElement>(null);
+  // The preview frame is letterboxed by hand: measure the available box and
+  // compute an exact pixel size that preserves the poster's aspect ratio.
+  // A pure-CSS attempt (grid place-items:center + aspect-ratio + auto-sized
+  // max-width/max-height, no JS) broke for the two "overlay" layouts --
+  // when the photo zone is the frame's *only* in-flow child and uses
+  // flex-1 (flex-basis:0%), it contributes no positive size to the
+  // ancestor's content-based aspect-ratio auto-sizing, collapsing the
+  // whole chain to 0x0; the 4-zone-split layouts happened to avoid this
+  // because their text zone (flex-shrink-0, flex-basis:auto) always
+  // supplied a positive contribution. JS measurement sidesteps that CSS
+  // auto-sizing edge case entirely. Attached via a *callback ref* (not
+  // useRef+useEffect) since a plain effect only runs once right after the
+  // very first commit -- and on that first commit `preset` is still null,
+  // so this component takes the early `return <CanvasSizeStep />` branch
+  // and the ref-bearing div doesn't exist yet, permanently missing it. A
+  // callback ref instead fires exactly when the DOM node actually mounts.
   const [wrapSize, setWrapSize] = useState({ w: 0, h: 0 });
-  useEffect(() => {
-    const el = previewWrapRef.current;
+  const wrapObserverRef = useRef<ResizeObserver | null>(null);
+  const previewWrapCallbackRef = useCallback((el: HTMLDivElement | null) => {
+    wrapObserverRef.current?.disconnect();
+    wrapObserverRef.current = null;
     if (!el) return;
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
@@ -69,7 +80,7 @@ export function PhotoPosterTool() {
       setWrapSize({ w: entry.contentRect.width, h: entry.contentRect.height });
     });
     observer.observe(el);
-    return () => observer.disconnect();
+    wrapObserverRef.current = observer;
   }, []);
 
   // A new photo has different dimensions, so any previous pan/zoom picked
@@ -211,10 +222,11 @@ export function PhotoPosterTool() {
   const shape = SHAPE_OPTIONS.find((s) => s.id === shapeId)!;
   const squareSizePx = baseFontSizePx * scaleMultiplier;
 
-  // Fit the poster's true aspect ratio inside whatever box the ResizeObserver
-  // measured, capped on whichever axis is tighter. Falls back to a
-  // CSS-only aspect-ratio box (visible immediately, before the first
-  // measurement lands) so there's no blank flash on mount.
+  // Fit the poster's true aspect ratio inside whatever box the
+  // ResizeObserver measured, capped on whichever axis is tighter. Falls
+  // back to a modest fixed-ish CSS aspect-ratio box for the brief instant
+  // before the first measurement lands (imperceptible in practice -- the
+  // observer's first callback fires within the same frame).
   const posterAR = preset.width / preset.height;
   let frameStyle: React.CSSProperties;
   if (wrapSize.w > 0 && wrapSize.h > 0) {
@@ -226,7 +238,7 @@ export function PhotoPosterTool() {
     }
     frameStyle = { width: frameW, height: frameH };
   } else {
-    frameStyle = { width: "100%", maxHeight: "100%", aspectRatio: `${preset.width} / ${preset.height}` };
+    frameStyle = { width: "50vmin", aspectRatio: `${preset.width} / ${preset.height}` };
   }
 
   return (
@@ -239,8 +251,11 @@ export function PhotoPosterTool() {
         onChange={(e) => void handleFileList(e.target.files)}
       />
 
-      <div ref={previewWrapRef} className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-3">
-        <div style={frameStyle} className="overflow-hidden rounded-lg shadow-[0_0_0_1px_rgba(255,255,255,0.08)]">
+      <div ref={previewWrapCallbackRef} className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-3">
+        <div
+          style={frameStyle}
+          className="overflow-hidden rounded-lg shadow-[0_0_0_1px_rgba(255,255,255,0.08)]"
+        >
           <PosterPreview
             canvasRef={canvasRef}
             imageUrl={imageUrl}
@@ -315,9 +330,9 @@ export function PhotoPosterTool() {
 
 export function PhotoPosterHeader() {
   return (
-    <div className="flex h-11 shrink-0 items-center justify-start border-b border-line bg-surface px-4 lg:justify-center">
+    <div className="flex h-11 shrink-0 items-center justify-center border-b border-line bg-surface px-4">
       <span className="text-sm font-normal tracking-wide text-accent" style={{ fontFamily: "var(--font-brand)" }}>
-        be4-ㄉ-post
+        BE4 THE POST
       </span>
     </div>
   );
