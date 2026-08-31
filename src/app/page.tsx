@@ -8,9 +8,11 @@ export const metadata: Metadata = {
 
 export default function Home() {
   return (
-    <div className="min-h-screen bg-bg">
+    <div className="flex h-full min-h-0 flex-col bg-bg">
       <PhotoPosterHeader />
-      <PhotoPosterTool />
+      <div className="min-h-0 flex-1">
+        <PhotoPosterTool />
+      </div>
     </div>
   );
 }

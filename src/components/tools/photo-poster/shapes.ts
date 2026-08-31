@@ -110,6 +110,51 @@ function moonPoints(steps = 48): Point[] {
   return normalizeToBox(pts, 100, 100, 4);
 }
 
+/** Circular "animal head" silhouette with two bump features (ear angular
+ * windows, measured in degrees with 0 = right, 90 = up) added to the
+ * radius. A sharp linear falloff reads as pointed cat ears; a
+ * sine-eased falloff plus a downward `droop` offset reads as floppy
+ * hanging dog ears. Reuses the same bump-on-a-circle idea as
+ * sparklePoints/moonPoints above rather than hand-eyeballed points. */
+function animalHeadPoints(
+  steps: number,
+  earCenters: [number, number],
+  earHalfWidthDeg: number,
+  earHeight: number,
+  rounded: boolean,
+  droop = 0,
+): Point[] {
+  const pts: Point[] = [];
+  for (let i = 0; i < steps; i++) {
+    const deg = (i / steps) * 360;
+    let bump = 0;
+    let droopAmt = 0;
+    for (const c of earCenters) {
+      const d = Math.abs(((deg - c + 540) % 360) - 180);
+      if (d < earHalfWidthDeg) {
+        const p = 1 - d / earHalfWidthDeg;
+        const b = rounded ? earHeight * Math.sin((p * Math.PI) / 2) : earHeight * p;
+        if (b > bump) {
+          bump = b;
+          droopAmt = droop * Math.sin((p * Math.PI) / 2);
+        }
+      }
+    }
+    const r = 1 + bump;
+    const t = (deg * Math.PI) / 180;
+    pts.push([r * Math.cos(t), -r * Math.sin(t) + droopAmt]);
+  }
+  return normalizeToBox(pts, 100, 100, 4);
+}
+
+function catPoints(): Point[] {
+  return animalHeadPoints(72, [58, 122], 17, 0.55, false);
+}
+
+function dogPoints(): Point[] {
+  return animalHeadPoints(72, [22, 158], 24, 0.62, true, 0.5);
+}
+
 /** Percentage-space (0-100) polygon points for the shapes that are plain
  * polygons. square/rounded/circle are handled specially (rect/round-rect/
  * arc) since they aren't naturally a polygon. Single source of truth for
@@ -121,6 +166,8 @@ export const SHAPE_POLYGONS: Partial<Record<ShapeId, Point[]>> = {
   blob: blobPoints(),
   sparkle: sparklePoints(),
   moon: moonPoints(),
+  cat: catPoints(),
+  dog: dogPoints(),
   lightning: [
     [65, 0],
     [25, 55],

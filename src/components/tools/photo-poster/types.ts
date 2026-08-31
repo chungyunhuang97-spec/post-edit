@@ -42,7 +42,9 @@ export type ShapeId =
   | "blob"
   | "sparkle"
   | "moon"
-  | "lightning";
+  | "lightning"
+  | "cat"
+  | "dog";
 
 export interface ShapeOption {
   id: ShapeId;

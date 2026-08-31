@@ -52,8 +52,6 @@ function computeCoverGeometry(
 
 export interface PosterPreviewProps {
   canvasRef: React.RefObject<HTMLDivElement | null>;
-  width: number;
-  height: number;
   imageUrl: string | null;
   caption: string;
   cutouts: Cutout[];
@@ -75,8 +73,6 @@ export interface PosterPreviewProps {
 
 export function PosterPreview({
   canvasRef,
-  width,
-  height,
   imageUrl,
   caption,
   cutouts,
@@ -214,8 +210,8 @@ export function PosterPreview({
   return (
     <div
       ref={canvasRef}
-      className="flex w-full flex-col overflow-hidden shadow-sm"
-      style={{ aspectRatio: `${width} / ${height}`, backgroundColor: topBgColor }}
+      className="flex h-full w-full flex-col overflow-hidden"
+      style={{ backgroundColor: topBgColor }}
     >
       {/* Top zone: poetic caption with inline cropped-photo thumbnails.
           Always exactly TOP_ZONE_FRACTION of the canvas -- a fixed
@@ -253,7 +249,7 @@ export function PosterPreview({
       </div>
 
       {/* Bottom zone: the source photo with draggable cutout windows */}
-      <div ref={bottomZoneRef} className="relative min-h-0 flex-1 select-none touch-none bg-neutral-200">
+      <div ref={bottomZoneRef} className="relative min-h-0 flex-1 select-none touch-none bg-surface-2">
         {imageUrl ? (
           <div
             onPointerDown={handlePhotoPointerDown}
@@ -269,7 +265,7 @@ export function PosterPreview({
             }}
           />
         ) : (
-          <div className="absolute inset-0 flex items-center justify-center text-sm text-neutral-500">
+          <div className="absolute inset-0 flex items-center justify-center text-sm text-ink-faint">
             尚未上傳照片
           </div>
         )}
@@ -281,7 +277,7 @@ export function PosterPreview({
               onPointerDown={(e) => handlePointerDown(e, cutout)}
               onPointerMove={handlePointerMove}
               onPointerUp={handlePointerUp}
-              className="absolute shadow-[0_1px_4px_rgba(0,0,0,0.25)]"
+              className="absolute shadow-[0_0_0_1px_rgba(255,255,255,0.5),0_2px_10px_rgba(255,46,196,0.35)]"
               style={{
                 left: `${cutout.xPct}%`,
                 top: `${cutout.yPct}%`,

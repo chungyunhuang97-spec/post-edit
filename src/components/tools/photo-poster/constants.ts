@@ -49,6 +49,8 @@ const SHAPE_LABELS: Record<ShapeId, string> = {
   blob: "液態泡泡",
   moon: "月牙",
   lightning: "閃電",
+  cat: "貓咪",
+  dog: "小狗",
 };
 
 export const SHAPE_OPTIONS: ShapeOption[] = (Object.keys(SHAPE_LABELS) as ShapeId[]).map((id) => ({

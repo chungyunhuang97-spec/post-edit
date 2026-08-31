@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { BRACKET_OPTIONS, FONT_OPTIONS, generatePoeticCaption, SHAPE_OPTIONS } from "./constants";
 import { CanvasSizeStep } from "./CanvasSizeStep";
 import { ControlPanel } from "./ControlPanel";
@@ -27,13 +27,33 @@ export function PhotoPosterTool() {
   const [letterSpacingPx, setLetterSpacingPx] = useState(0);
   const [fontOptionId, setFontOptionId] = useState<FontOptionId>("sans");
   const [bracketId, setBracketId] = useState<BracketStyleId>("round-small");
-  const [topBgColor, setTopBgColor] = useState("#ebebeb");
-  const [textColor, setTextColor] = useState("#111111");
+  const [topBgColor, setTopBgColor] = useState("#15111f");
+  const [textColor, setTextColor] = useState("#f5f3ff");
   const [pan, setPan] = useState({ x: 0.5, y: 0.5 });
   const [zoom, setZoom] = useState(1);
   const [exporting, setExporting] = useState(false);
 
   const canvasRef = useRef<HTMLDivElement>(null);
+
+  // The preview frame is letterboxed by hand (rather than relying on CSS
+  // aspect-ratio inside a shrinking flex item, which resolves
+  // inconsistently once max-width/max-height both start constraining it)
+  // -- measure the available box and compute an exact pixel size that
+  // preserves the poster's aspect ratio, same ResizeObserver pattern
+  // PosterPreview already uses for its own bottom-zone measurement.
+  const previewWrapRef = useRef<HTMLDivElement>(null);
+  const [wrapSize, setWrapSize] = useState({ w: 0, h: 0 });
+  useEffect(() => {
+    const el = previewWrapRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      setWrapSize({ w: entry.contentRect.width, h: entry.contentRect.height });
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   // A new photo has different dimensions, so any previous pan/zoom picked
   // for the old photo's "slack" no longer means anything -- reset to
@@ -138,18 +158,59 @@ export function PhotoPosterTool() {
   const shape = SHAPE_OPTIONS.find((s) => s.id === shapeId)!;
   const squareSizePx = baseFontSizePx * scaleMultiplier;
 
+  // Fit the poster's true aspect ratio inside whatever box the ResizeObserver
+  // measured, capped on whichever axis is tighter. Falls back to a
+  // CSS-only aspect-ratio box (visible immediately, before the first
+  // measurement lands) so there's no blank flash on mount.
+  const posterAR = preset.width / preset.height;
+  let frameStyle: React.CSSProperties;
+  if (wrapSize.w > 0 && wrapSize.h > 0) {
+    let frameW = wrapSize.w;
+    let frameH = frameW / posterAR;
+    if (frameH > wrapSize.h) {
+      frameH = wrapSize.h;
+      frameW = frameH * posterAR;
+    }
+    frameStyle = { width: frameW, height: frameH };
+  } else {
+    frameStyle = { width: "100%", maxHeight: "100%", aspectRatio: `${preset.width} / ${preset.height}` };
+  }
+
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-8 px-4 py-10 lg:flex-row lg:items-start">
-      {/* order-2/order-1: on mobile the poster preview shows first so
-          people see their result immediately, instead of scrolling past
-          the whole (long) settings panel first; desktop keeps the
-          familiar controls-left/preview-right split. */}
-      <div className="order-2 w-full lg:order-1 lg:w-80 lg:flex-shrink-0">
+    <div className="flex h-full min-h-0 flex-col">
+      <div ref={previewWrapRef} className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-3">
+        <div style={frameStyle} className="overflow-hidden rounded-lg shadow-[0_0_0_1px_rgba(255,255,255,0.06)]">
+          <PosterPreview
+            canvasRef={canvasRef}
+            imageUrl={imageUrl}
+            caption={caption}
+            cutouts={cutouts}
+            onCutoutsChange={setCutouts}
+            locked={locked}
+            squareSizePx={squareSizePx}
+            baseFontSizePx={baseFontSizePx}
+            lineHeightMultiplier={lineHeightMultiplier}
+            letterSpacingPx={letterSpacingPx}
+            fontOption={fontOption}
+            bracket={bracket}
+            shape={shape}
+            topBgColor={topBgColor}
+            textColor={textColor}
+            pan={pan}
+            onPanChange={setPan}
+            zoom={zoom}
+          />
+        </div>
+      </div>
+
+      <div className="flex min-h-0 shrink-0 flex-col border-t border-line bg-surface" style={{ maxHeight: "52dvh" }}>
         <ControlPanel
           preset={preset}
           onChangeSize={() => setPreset(null)}
           imageUrl={imageUrl}
           onImageChange={handleImageChange}
+          zoom={zoom}
+          onZoomChange={setZoom}
           caption={caption}
           onCaptionChange={setCaption}
           onRegenerateCaption={() => setCaption(generatePoeticCaption())}
@@ -161,8 +222,6 @@ export function PhotoPosterTool() {
           onShapeChange={setShapeId}
           scaleMultiplier={scaleMultiplier}
           onScaleChange={setScaleMultiplier}
-          zoom={zoom}
-          onZoomChange={setZoom}
           baseFontSizePx={baseFontSizePx}
           onFontSizeChange={setBaseFontSizePx}
           lineHeightMultiplier={lineHeightMultiplier}
@@ -184,44 +243,18 @@ export function PhotoPosterTool() {
           exporting={exporting}
         />
       </div>
-
-      <div className="order-1 mx-auto w-full max-w-md lg:order-2">
-        <PosterPreview
-          canvasRef={canvasRef}
-          width={preset.width}
-          height={preset.height}
-          imageUrl={imageUrl}
-          caption={caption}
-          cutouts={cutouts}
-          onCutoutsChange={setCutouts}
-          locked={locked}
-          squareSizePx={squareSizePx}
-          baseFontSizePx={baseFontSizePx}
-          lineHeightMultiplier={lineHeightMultiplier}
-          letterSpacingPx={letterSpacingPx}
-          fontOption={fontOption}
-          bracket={bracket}
-          shape={shape}
-          topBgColor={topBgColor}
-          textColor={textColor}
-          pan={pan}
-          onPanChange={setPan}
-          zoom={zoom}
-        />
-        <p className="mt-3 text-center text-xs text-ink-faint">
-          畫布解析度：{preset.width} × {preset.height} · 拖曳方塊調整挖空 · 拖曳照片本身調整顯示範圍
-        </p>
-      </div>
     </div>
   );
 }
 
 export function PhotoPosterHeader() {
   return (
-    <div className="border-b border-line bg-white/70 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center gap-2 px-4 py-3">
-        <span className="text-sm font-medium text-ink">相片海報產生器</span>
-      </div>
+    <div className="flex h-11 shrink-0 items-center border-b border-line bg-surface px-4">
+      <span
+        className="bg-clip-text text-sm font-semibold tracking-wide text-transparent y2k-gradient"
+      >
+        相片海報產生器
+      </span>
     </div>
   );
 }

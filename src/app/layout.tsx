@@ -32,7 +32,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-Hant" className={`${geistSans.variable} ${geistMono.variable} ${newsreader.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col bg-bg text-ink">{children}</body>
+      <body className="h-dvh overflow-hidden bg-bg text-ink antialiased">{children}</body>
     </html>
   );
 }
