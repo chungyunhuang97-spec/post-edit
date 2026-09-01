@@ -1,4 +1,5 @@
 import { OVERLAY_BAND_FRACTION, TOP_ZONE_FRACTION } from "./constants";
+import { drawHalftone } from "./halftone";
 import type { BracketOption, Cutout, PosterLayoutId, ShapeOption } from "./types";
 import { buildCaptionTokens } from "./useCutoutLayout";
 import { canvasShapePath } from "./shapes";
@@ -155,6 +156,9 @@ export interface RenderPosterParams {
   zoom: number;
   /** Which of the 6 concrete text/photo zone arrangements to render. */
   layout: PosterLayoutId;
+  /** Whether to paint a shape-glyph halftone dot texture (derived from the
+   * photo's own brightness map) behind the caption text. */
+  halftoneEnabled: boolean;
 }
 
 /** Renders the poster directly onto a <canvas>, entirely by hand --
@@ -185,6 +189,7 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
     pan,
     zoom,
     layout,
+    halftoneEnabled,
   } = params;
 
   const scale = previewWidthPx ? width / previewWidthPx : 1;
@@ -310,6 +315,10 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   if (isOverlay) {
     ctx.fillStyle = topBgColor;
     ctx.fillRect(textZone.x, textZone.y, textZone.w, textZone.h);
+  }
+
+  if (halftoneEnabled) {
+    drawHalftone(ctx, img, textZone, shape.id, textColor);
   }
 
   // --- Paint pass: caption text + inline cropped thumbnails, both

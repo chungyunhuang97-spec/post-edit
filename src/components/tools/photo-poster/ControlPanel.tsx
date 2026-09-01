@@ -81,6 +81,8 @@ export interface ControlPanelProps {
 
   layout: PosterLayoutId;
   onLayoutChange: (id: PosterLayoutId) => void;
+  halftoneEnabled: boolean;
+  onHalftoneEnabledChange: (enabled: boolean) => void;
 
   onExport: () => void;
   exporting: boolean;
@@ -125,6 +127,8 @@ export function ControlPanel(props: ControlPanelProps) {
     onTextColorChange,
     layout,
     onLayoutChange,
+    halftoneEnabled,
+    onHalftoneEnabledChange,
     onExport,
     exporting,
   } = props;
@@ -332,6 +336,18 @@ export function ControlPanel(props: ControlPanelProps) {
                 value={topBgColor}
                 onChange={(e) => onTopBgColorChange(e.target.value)}
                 className="h-8 w-full rounded-md border border-line bg-surface-2"
+              />
+            </label>
+            <label className="flex items-center justify-between rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-muted">
+              <span className="flex flex-col gap-0.5">
+                <span className="font-medium text-ink">網點背景</span>
+                <span className="text-ink-faint">用目前的圖形當網點，依照片明暗排列在文字底下</span>
+              </span>
+              <input
+                type="checkbox"
+                checked={halftoneEnabled}
+                onChange={(e) => onHalftoneEnabledChange(e.target.checked)}
+                className="h-4 w-4 accent-accent"
               />
             </label>
           </div>
