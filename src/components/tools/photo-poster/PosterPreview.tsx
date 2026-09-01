@@ -4,6 +4,8 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { OVERLAY_BAND_FRACTION, TOP_ZONE_FRACTION } from "./constants";
 import { applyDuotone } from "./duotone";
 import { drawFilmGrain } from "./grain";
+import { drawSubjectHalftone } from "./subjectHalftone";
+import type { SubjectMask } from "./subjectSegmentation";
 import type { BracketOption, Cutout, FontOption, PosterLayoutId, ShapeOption } from "./types";
 import { buildCaptionTokens, clampPct } from "./useCutoutLayout";
 
@@ -77,6 +79,8 @@ export interface PosterPreviewProps {
   duotoneEnabled: boolean;
   grainEnabled: boolean;
   grainIntensity: number;
+  subjectHalftoneEnabled: boolean;
+  subjectMask: SubjectMask | null;
   onRequestUpload: () => void;
   onFilesDropped: (files: FileList) => void;
 }
@@ -104,6 +108,8 @@ export function PosterPreview({
   duotoneEnabled,
   grainEnabled,
   grainIntensity,
+  subjectHalftoneEnabled,
+  subjectMask,
   onRequestUpload,
   onFilesDropped,
 }: PosterPreviewProps) {
@@ -113,6 +119,9 @@ export function PosterPreview({
   const [duotoneUrl, setDuotoneUrl] = useState<string | null>(null);
   const [frameSize, setFrameSize] = useState({ w: 0, h: 0 });
   const grainCanvasRef = useRef<HTMLCanvasElement>(null);
+  const textZoneRef = useRef<HTMLDivElement>(null);
+  const [textZoneSize, setTextZoneSize] = useState({ w: 0, h: 0 });
+  const subjectHalftoneCanvasRef = useRef<HTMLCanvasElement>(null);
   const dragState = useRef<{ id: string; startX: number; startY: number; originXPct: number; originYPct: number } | null>(
     null,
   );
@@ -202,6 +211,48 @@ export function PosterPreview({
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     drawFilmGrain(ctx, canvas.width, canvas.height, grainIntensity / 100);
   }, [grainEnabled, grainIntensity, frameSize]);
+
+  useEffect(() => {
+    const el = textZoneRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const { width: w, height: h } = entry.contentRect;
+      setTextZoneSize({ w, h });
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // Renders a dot-matrix silhouette of whatever subjectMask detected in the
+  // photo (see subjectSegmentation.ts) behind the caption text, instead of
+  // that zone's plain background -- subjectMask itself is computed once
+  // per photo up in PhotoPosterTool.tsx (segmentation is comparatively
+  // slow and shared with the export path), this effect only handles
+  // drawing it at the text zone's current size.
+  useEffect(() => {
+    if (!subjectHalftoneEnabled || !subjectMask || !imageUrl || !textZoneSize.w || !textZoneSize.h) return;
+    const canvas = subjectHalftoneCanvasRef.current;
+    if (!canvas) return;
+    let cancelled = false;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = textZoneSize.w * dpr;
+    canvas.height = textZoneSize.h * dpr;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const img = new Image();
+    img.onload = () => {
+      if (cancelled) return;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, textZoneSize.w, textZoneSize.h);
+      drawSubjectHalftone(ctx, img, subjectMask, { x: 0, y: 0, w: textZoneSize.w, h: textZoneSize.h }, shape.id, textColor);
+    };
+    img.src = imageUrl;
+    return () => {
+      cancelled = true;
+    };
+  }, [subjectHalftoneEnabled, subjectMask, imageUrl, textZoneSize, shape.id, textColor]);
 
   const geometry = computeCoverGeometry(boxSize.w, boxSize.h, natural.w, natural.h, pan, zoom);
   const squareXPct = boxSize.w ? (squareSizePx / boxSize.w) * 100 : 0;
@@ -314,8 +365,9 @@ export function PosterPreview({
   const textZone = (
     <div
       key="text"
+      ref={textZoneRef}
       data-role="top-zone"
-      className={`flex flex-shrink-0 flex-wrap content-center items-center justify-center gap-x-1 gap-y-2 overflow-hidden px-[6%] py-[7%] ${isOverlay ? "z-10" : ""}`}
+      className={`relative isolate flex flex-shrink-0 flex-wrap content-center items-center justify-center gap-x-1 gap-y-2 overflow-hidden px-[6%] py-[7%] ${isOverlay ? "z-10" : ""}`}
       style={{
         color: textColor,
         fontFamily: `${fontOption.cssVar}, ${fontOption.fallback}`,
@@ -325,6 +377,13 @@ export function PosterPreview({
         ...overlayTextStyle,
       }}
     >
+      {subjectHalftoneEnabled && subjectMask && (
+        <canvas
+          ref={subjectHalftoneCanvasRef}
+          className="pointer-events-none absolute inset-0 -z-10"
+          style={{ width: "100%", height: "100%" }}
+        />
+      )}
       {tokens.map((token, i) =>
         token.kind === "word" ? (
           <span key={i}>{token.text}</span>

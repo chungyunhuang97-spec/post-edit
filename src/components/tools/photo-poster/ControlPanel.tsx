@@ -87,6 +87,9 @@ export interface ControlPanelProps {
 
   layout: PosterLayoutId;
   onLayoutChange: (id: PosterLayoutId) => void;
+  subjectHalftoneEnabled: boolean;
+  onSubjectHalftoneEnabledChange: (enabled: boolean) => void;
+  subjectHalftoneStatus: "idle" | "loading" | "ready" | "unavailable";
 
   onExport: () => void;
   exporting: boolean;
@@ -137,6 +140,9 @@ export function ControlPanel(props: ControlPanelProps) {
     onTextColorChange,
     layout,
     onLayoutChange,
+    subjectHalftoneEnabled,
+    onSubjectHalftoneEnabledChange,
+    subjectHalftoneStatus,
     onExport,
     exporting,
   } = props;
@@ -388,6 +394,27 @@ export function ControlPanel(props: ControlPanelProps) {
                 className="h-8 w-full rounded-md border border-line bg-surface-2"
               />
             </label>
+            <div className="flex flex-col gap-1.5 rounded-md border border-line bg-surface-2 px-3 py-2">
+              <label className="flex items-center justify-between text-xs text-ink-muted">
+                <span className="flex flex-col gap-0.5">
+                  <span className="font-medium text-ink">主體網點</span>
+                  <span className="text-ink-faint">用網點畫出照片裡偵測到的主體（人物/動物等）輪廓，取代文案底色</span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={subjectHalftoneEnabled}
+                  disabled={!imageUrl}
+                  onChange={(e) => onSubjectHalftoneEnabledChange(e.target.checked)}
+                  className="h-4 w-4 accent-accent disabled:opacity-40"
+                />
+              </label>
+              {subjectHalftoneEnabled && subjectHalftoneStatus === "loading" && (
+                <p className="text-[11px] text-ink-faint">偵測中，第一次使用需要下載辨識模型…</p>
+              )}
+              {subjectHalftoneEnabled && subjectHalftoneStatus === "unavailable" && (
+                <p className="text-[11px] text-ink-faint">這張照片沒有偵測到可辨識的主體，暫時不會顯示效果。</p>
+              )}
+            </div>
           </div>
         )}
 

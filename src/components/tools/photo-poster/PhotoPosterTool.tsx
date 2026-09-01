@@ -7,6 +7,7 @@ import { ControlPanel } from "./ControlPanel";
 import { renderPosterToCanvas } from "./exportPoster";
 import { analyzePhotoMood } from "./photoMood";
 import { PosterPreview } from "./PosterPreview";
+import { segmentSubject, type SubjectMask } from "./subjectSegmentation";
 import type { BracketStyleId, CanvasPreset, Cutout, FontOptionId, PosterLayoutId, ShapeId } from "./types";
 import { randomizeCutouts, resetCutoutColors, resizeCutouts, setCutoutColor, wordCountOf } from "./useCutoutLayout";
 
@@ -47,9 +48,19 @@ export function PhotoPosterTool() {
   const [duotoneEnabled, setDuotoneEnabled] = useState(false);
   const [grainEnabled, setGrainEnabled] = useState(false);
   const [grainIntensity, setGrainIntensity] = useState(30);
+  const [subjectHalftoneEnabled, setSubjectHalftoneEnabled] = useState(false);
+  const [subjectMask, setSubjectMask] = useState<SubjectMask | null>(null);
+  const [subjectHalftoneStatus, setSubjectHalftoneStatus] = useState<"idle" | "loading" | "ready" | "unavailable">(
+    "idle",
+  );
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Tracks which photo the current subjectMask (if any) was computed for,
+  // so switching photos or re-enabling the toggle only re-runs the
+  // (comparatively slow, model-download-gated) segmentation when it
+  // actually needs to -- not on every unrelated re-render.
+  const subjectMaskForUrlRef = useRef<string | null>(null);
 
   // The preview frame is letterboxed by hand: measure the available box and
   // compute an exact pixel size that preserves the poster's aspect ratio.
@@ -116,6 +127,28 @@ export function PhotoPosterTool() {
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
   }, [handleImageChange]);
+
+  // Runs subject segmentation (a client-side ML model, see
+  // subjectSegmentation.ts) only when the "主體網點" toggle is actually on
+  // -- someone who never touches it never triggers the model download --
+  // and only once per photo, since the result is reused by both the live
+  // preview and the export rather than segmenting twice.
+  useEffect(() => {
+    if (!subjectHalftoneEnabled || !imageUrl) return;
+    if (subjectMaskForUrlRef.current === imageUrl) return;
+    subjectMaskForUrlRef.current = imageUrl;
+    setSubjectMask(null);
+    setSubjectHalftoneStatus("loading");
+    let cancelled = false;
+    segmentSubject(imageUrl).then((mask) => {
+      if (cancelled || subjectMaskForUrlRef.current !== imageUrl) return;
+      setSubjectMask(mask);
+      setSubjectHalftoneStatus(mask ? "ready" : "unavailable");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [subjectHalftoneEnabled, imageUrl]);
 
   const handleCutoutCountChange = useCallback(
     (n: number) => {
@@ -190,6 +223,8 @@ export function PhotoPosterTool() {
         duotoneEnabled,
         grainEnabled,
         grainIntensity,
+        subjectHalftoneEnabled,
+        subjectMask,
       });
 
       const blob = await new Promise<Blob | null>((resolve) => posterCanvas.toBlob(resolve, "image/png"));
@@ -223,6 +258,8 @@ export function PhotoPosterTool() {
     duotoneEnabled,
     grainEnabled,
     grainIntensity,
+    subjectHalftoneEnabled,
+    subjectMask,
   ]);
 
   if (!preset) {
@@ -291,6 +328,8 @@ export function PhotoPosterTool() {
             duotoneEnabled={duotoneEnabled}
             grainEnabled={grainEnabled}
             grainIntensity={grainIntensity}
+            subjectHalftoneEnabled={subjectHalftoneEnabled}
+            subjectMask={subjectMask}
             onRequestUpload={handleRequestUpload}
             onFilesDropped={handleFileList}
           />
@@ -342,6 +381,9 @@ export function PhotoPosterTool() {
           onTextColorChange={setTextColor}
           layout={layout}
           onLayoutChange={setLayout}
+          subjectHalftoneEnabled={subjectHalftoneEnabled}
+          onSubjectHalftoneEnabledChange={setSubjectHalftoneEnabled}
+          subjectHalftoneStatus={subjectHalftoneStatus}
           onExport={handleExport}
           exporting={exporting}
         />

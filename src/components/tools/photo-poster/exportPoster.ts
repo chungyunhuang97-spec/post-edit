@@ -1,6 +1,8 @@
 import { OVERLAY_BAND_FRACTION, TOP_ZONE_FRACTION } from "./constants";
 import { applyDuotone } from "./duotone";
 import { drawFilmGrain } from "./grain";
+import { drawSubjectHalftone } from "./subjectHalftone";
+import type { SubjectMask } from "./subjectSegmentation";
 import type { BracketOption, Cutout, PosterLayoutId, ShapeOption } from "./types";
 import { buildCaptionTokens } from "./useCutoutLayout";
 import { canvasShapePath } from "./shapes";
@@ -171,6 +173,11 @@ export interface RenderPosterParams {
   grainEnabled: boolean;
   /** 0-100. */
   grainIntensity: number;
+  /** Renders a dot-matrix silhouette of subjectMask behind the caption
+   * text instead of that zone's plain background. No-ops if subjectMask
+   * is null (segmentation unavailable or found nothing recognizable). */
+  subjectHalftoneEnabled: boolean;
+  subjectMask: SubjectMask | null;
 }
 
 /** Renders the poster directly onto a <canvas>, entirely by hand --
@@ -204,6 +211,8 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
     duotoneEnabled,
     grainEnabled,
     grainIntensity,
+    subjectHalftoneEnabled,
+    subjectMask,
   } = params;
 
   const scale = previewWidthPx ? width / previewWidthPx : 1;
@@ -340,6 +349,10 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   if (isOverlay) {
     ctx.fillStyle = topBgColor;
     ctx.fillRect(textZone.x, textZone.y, textZone.w, textZone.h);
+  }
+
+  if (subjectHalftoneEnabled && subjectMask) {
+    drawSubjectHalftone(ctx, img, subjectMask, textZone, shape.id, textColor);
   }
 
   // --- Paint pass: caption text + inline cropped thumbnails, both
