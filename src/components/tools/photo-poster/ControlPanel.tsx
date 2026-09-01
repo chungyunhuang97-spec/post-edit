@@ -46,6 +46,12 @@ export interface ControlPanelProps {
 
   zoom: number;
   onZoomChange: (n: number) => void;
+  duotoneEnabled: boolean;
+  onDuotoneEnabledChange: (enabled: boolean) => void;
+  grainEnabled: boolean;
+  onGrainEnabledChange: (enabled: boolean) => void;
+  grainIntensity: number;
+  onGrainIntensityChange: (n: number) => void;
 
   caption: string;
   onCaptionChange: (text: string) => void;
@@ -94,6 +100,12 @@ export function ControlPanel(props: ControlPanelProps) {
     onRequestUpload,
     zoom,
     onZoomChange,
+    duotoneEnabled,
+    onDuotoneEnabledChange,
+    grainEnabled,
+    onGrainEnabledChange,
+    grainIntensity,
+    onGrainIntensityChange,
     caption,
     onCaptionChange,
     onRegenerateCaption,
@@ -187,6 +199,48 @@ export function ControlPanel(props: ControlPanelProps) {
                 >
                   變更照片
                 </button>
+                <label className="flex items-center justify-between rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-muted">
+                  <span className="flex flex-col gap-0.5">
+                    <span className="font-medium text-ink">雙色調</span>
+                    <span className="text-ink-faint">用文字色與上半部背景色重新上色照片</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={duotoneEnabled}
+                    onChange={(e) => onDuotoneEnabledChange(e.target.checked)}
+                    className="h-4 w-4 accent-accent"
+                  />
+                </label>
+                <div className="flex flex-col gap-2 rounded-md border border-line bg-surface-2 px-3 py-2">
+                  <label className="flex items-center justify-between text-xs text-ink-muted">
+                    <span className="flex flex-col gap-0.5">
+                      <span className="font-medium text-ink">顆粒質感</span>
+                      <span className="text-ink-faint">整張海報疊加底片顆粒</span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={grainEnabled}
+                      onChange={(e) => onGrainEnabledChange(e.target.checked)}
+                      className="h-4 w-4 accent-accent"
+                    />
+                  </label>
+                  {grainEnabled && (
+                    <label className="flex flex-col gap-1">
+                      <span className="flex justify-between text-xs text-ink-muted">
+                        <span>顆粒濃度</span>
+                        <span>{grainIntensity}%</span>
+                      </span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={5}
+                        value={grainIntensity}
+                        onChange={(e) => onGrainIntensityChange(Number(e.target.value))}
+                      />
+                    </label>
+                  )}
+                </div>
               </>
             ) : (
               <p className="text-xs text-ink-faint">請在上方預覽區塊點擊上傳照片，或直接拖曳、Ctrl/Cmd+V 貼上。</p>

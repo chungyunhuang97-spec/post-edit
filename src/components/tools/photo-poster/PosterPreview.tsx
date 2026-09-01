@@ -2,8 +2,12 @@
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { OVERLAY_BAND_FRACTION, TOP_ZONE_FRACTION } from "./constants";
+import { applyDuotone } from "./duotone";
+import { drawFilmGrain } from "./grain";
 import type { BracketOption, Cutout, FontOption, PosterLayoutId, ShapeOption } from "./types";
 import { buildCaptionTokens, clampPct } from "./useCutoutLayout";
+
+const DUOTONE_PREVIEW_MAX_DIMENSION = 900;
 
 interface CoverGeometry {
   boxW: number;
@@ -70,6 +74,9 @@ export interface PosterPreviewProps {
   onPanChange: (next: { x: number; y: number }) => void;
   zoom: number;
   layout: PosterLayoutId;
+  duotoneEnabled: boolean;
+  grainEnabled: boolean;
+  grainIntensity: number;
   onRequestUpload: () => void;
   onFilesDropped: (files: FileList) => void;
 }
@@ -94,12 +101,18 @@ export function PosterPreview({
   onPanChange,
   zoom,
   layout,
+  duotoneEnabled,
+  grainEnabled,
+  grainIntensity,
   onRequestUpload,
   onFilesDropped,
 }: PosterPreviewProps) {
   const bottomZoneRef = useRef<HTMLDivElement>(null);
   const [boxSize, setBoxSize] = useState({ w: 0, h: 0 });
   const [natural, setNatural] = useState({ w: 0, h: 0 });
+  const [duotoneUrl, setDuotoneUrl] = useState<string | null>(null);
+  const [frameSize, setFrameSize] = useState({ w: 0, h: 0 });
+  const grainCanvasRef = useRef<HTMLCanvasElement>(null);
   const dragState = useRef<{ id: string; startX: number; startY: number; originXPct: number; originYPct: number } | null>(
     null,
   );
@@ -124,6 +137,71 @@ export function PosterPreview({
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
+
+  // Recolors the photo into two tones (dark/light, reusing the existing
+  // topBgColor/textColor pickers rather than adding new ones) whenever
+  // duotone is on -- the resulting blob URL replaces the plain imageUrl
+  // everywhere the photo is painted, below. Runs at a capped working
+  // resolution since the live preview never needs full photo resolution.
+  useEffect(() => {
+    // No explicit "reset to null" here when disabled -- displayImageUrl
+    // below already ignores duotoneUrl whenever duotoneEnabled is false, so
+    // a stale (and by then already-revoked, via this same effect's own
+    // cleanup on the *previous* run) URL sitting unused in state is
+    // harmless, and re-enabling later just overwrites it with a fresh one.
+    if (!duotoneEnabled || !imageUrl || !natural.w || !natural.h) return;
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    const img = new Image();
+    img.onload = () => {
+      if (cancelled) return;
+      const canvas = applyDuotone(img, natural.w, natural.h, topBgColor, textColor, DUOTONE_PREVIEW_MAX_DIMENSION);
+      canvas.toBlob((blob) => {
+        if (cancelled || !blob) return;
+        objectUrl = URL.createObjectURL(blob);
+        setDuotoneUrl(objectUrl);
+      });
+    };
+    img.src = imageUrl;
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [duotoneEnabled, imageUrl, natural.w, natural.h, topBgColor, textColor]);
+
+  // Falls back to the plain photo while the duotone recolor is still being
+  // computed (async, one extra frame or two) so toggling it on doesn't
+  // flash the photo away for an instant.
+  const displayImageUrl = duotoneEnabled ? (duotoneUrl ?? imageUrl) : imageUrl;
+
+  useEffect(() => {
+    const el = canvasRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const { width: w, height: h } = entry.contentRect;
+      setFrameSize({ w, h });
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [canvasRef]);
+
+  // Redraws the film-grain layer only when it actually needs to change
+  // (not on every render, e.g. while dragging a cutout) so the noise
+  // pattern stays put instead of flickering like TV static.
+  useEffect(() => {
+    if (!grainEnabled || !frameSize.w || !frameSize.h) return;
+    const canvas = grainCanvasRef.current;
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = frameSize.w * dpr;
+    canvas.height = frameSize.h * dpr;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawFilmGrain(ctx, canvas.width, canvas.height, grainIntensity / 100);
+  }, [grainEnabled, grainIntensity, frameSize]);
 
   const geometry = computeCoverGeometry(boxSize.w, boxSize.h, natural.w, natural.h, pan, zoom);
   const squareXPct = boxSize.w ? (squareSizePx / boxSize.w) * 100 : 0;
@@ -199,8 +277,8 @@ export function PosterPreview({
       height: squareSizePx,
       display: "inline-block",
       verticalAlign: "middle",
-      backgroundImage: imageUrl ? `url(${imageUrl})` : undefined,
-      backgroundColor: imageUrl ? undefined : "#d4d4d8",
+      backgroundImage: displayImageUrl ? `url(${displayImageUrl})` : undefined,
+      backgroundColor: displayImageUrl ? undefined : "#d4d4d8",
       backgroundSize: `${geometry.renderedW}px ${geometry.renderedH}px`,
       // Negate numerically (not by string-prefixing "-") since left/top are
       // already negative whenever the cover-cropped image overflows its
@@ -274,7 +352,7 @@ export function PosterPreview({
           onPointerUp={handlePhotoPointerUp}
           className="absolute inset-0"
           style={{
-            backgroundImage: `url(${imageUrl})`,
+            backgroundImage: `url(${displayImageUrl})`,
             backgroundSize: `${geometry.renderedW}px ${geometry.renderedH}px`,
             backgroundPosition: `${geometry.offsetX}px ${geometry.offsetY}px`,
             backgroundRepeat: "no-repeat",
@@ -329,10 +407,22 @@ export function PosterPreview({
     </div>
   );
 
+  // Sits above every other layer (photo, cutouts, caption text) in both
+  // branches below, matching how film grain sits on top of an actual
+  // printed poster rather than being just another background layer.
+  const grainOverlay = grainEnabled && (
+    <canvas
+      ref={grainCanvasRef}
+      className="pointer-events-none absolute inset-0 z-20"
+      style={{ width: "100%", height: "100%" }}
+    />
+  );
+
   if (isOverlay) {
     return (
-      <div ref={canvasRef} className="flex h-full w-full overflow-hidden" style={{ backgroundColor: topBgColor }}>
+      <div ref={canvasRef} className="relative flex h-full w-full overflow-hidden" style={{ backgroundColor: topBgColor }}>
         {photoZone}
+        {grainOverlay}
       </div>
     );
   }
@@ -340,10 +430,11 @@ export function PosterPreview({
   return (
     <div
       ref={canvasRef}
-      className={`flex h-full w-full overflow-hidden ${isRow ? "flex-row" : "flex-col"}`}
+      className={`relative flex h-full w-full overflow-hidden ${isRow ? "flex-row" : "flex-col"}`}
       style={{ backgroundColor: topBgColor }}
     >
       {textFirst ? [textZone, photoZone] : [photoZone, textZone]}
+      {grainOverlay}
     </div>
   );
 }

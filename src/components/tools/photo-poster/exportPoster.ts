@@ -1,7 +1,16 @@
 import { OVERLAY_BAND_FRACTION, TOP_ZONE_FRACTION } from "./constants";
+import { applyDuotone } from "./duotone";
+import { drawFilmGrain } from "./grain";
 import type { BracketOption, Cutout, PosterLayoutId, ShapeOption } from "./types";
 import { buildCaptionTokens } from "./useCutoutLayout";
 import { canvasShapePath } from "./shapes";
+
+// The export renders at full poster resolution (often much larger than a
+// phone photo needs to be shown at), so the duotone pass caps its working
+// resolution well above the live preview's cap -- quality matters more
+// here than speed, but an uncapped multi-thousand-pixel DSLR photo would
+// still make the per-pixel recolor loop needlessly slow.
+const DUOTONE_EXPORT_MAX_DIMENSION = 3000;
 
 interface CoverGeometry {
   renderedW: number;
@@ -155,6 +164,13 @@ export interface RenderPosterParams {
   zoom: number;
   /** Which of the 6 concrete text/photo zone arrangements to render. */
   layout: PosterLayoutId;
+  /** Recolors the photo into topBgColor (shadows) / textColor (highlights)
+   * instead of its own colors. */
+  duotoneEnabled: boolean;
+  /** Paints a random noise layer over the entire finished poster, last. */
+  grainEnabled: boolean;
+  /** 0-100. */
+  grainIntensity: number;
 }
 
 /** Renders the poster directly onto a <canvas>, entirely by hand --
@@ -185,6 +201,9 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
     pan,
     zoom,
     layout,
+    duotoneEnabled,
+    grainEnabled,
+    grainIntensity,
   } = params;
 
   const scale = previewWidthPx ? width / previewWidthPx : 1;
@@ -214,6 +233,17 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   ctx.fillRect(0, 0, width, height);
 
   const img = await loadImage(imageUrl);
+  // Recolored once up front (rather than per drawImage call below) so
+  // every place the photo gets painted -- the main photo zone and the
+  // inline cropped thumbnails in the caption -- stays in sync. A
+  // <canvas> is a valid drawImage source, so nothing downstream needs to
+  // know whether it's drawing the original photo or this recolored one,
+  // aside from reading width/height off the right object.
+  const photoSource: CanvasImageSource = duotoneEnabled
+    ? applyDuotone(img, img.naturalWidth, img.naturalHeight, topBgColor, textColor, DUOTONE_EXPORT_MAX_DIMENSION)
+    : img;
+  const srcW = duotoneEnabled ? (photoSource as HTMLCanvasElement).width : img.naturalWidth;
+  const srcH = duotoneEnabled ? (photoSource as HTMLCanvasElement).height : img.naturalHeight;
 
   ctx.font = `${fontPx}px ${fontFamily}`;
   const bracketOpenW = bracket.open ? ctx.measureText(bracket.open).width : 0;
@@ -253,7 +283,7 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   const rowHeights = lines.map((line) => (line.some((it) => it.kind === "cutout") ? Math.max(lineHeight, squarePx) : lineHeight));
   const totalTextHeight = rowHeights.reduce((a, b) => a + b, 0) + gapY * Math.max(0, lines.length - 1);
 
-  const bottomGeom = coverGeometry(photoZone.w, photoZone.h, img.naturalWidth, img.naturalHeight, pan, zoom);
+  const bottomGeom = coverGeometry(photoZone.w, photoZone.h, srcW, srcH, pan, zoom);
   const cutoutById = new Map(cutouts.map((c) => [c.id, c]));
 
   function cutoutImagePoint(cutout: Cutout) {
@@ -280,11 +310,11 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
     ctx.rect(photoZone.x, photoZone.y, photoZone.w, photoZone.h);
     ctx.clip();
     ctx.drawImage(
-      img,
+      photoSource,
       0,
       0,
-      img.naturalWidth,
-      img.naturalHeight,
+      srcW,
+      srcH,
       photoZone.x + bottomGeom.offsetX,
       photoZone.y + bottomGeom.offsetY,
       bottomGeom.renderedW,
@@ -360,11 +390,11 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
         ctx.save();
         ctx.clip(path);
         ctx.drawImage(
-          img,
+          photoSource,
           0,
           0,
-          img.naturalWidth,
-          img.naturalHeight,
+          srcW,
+          srcH,
           imgX - left,
           boxY - top,
           bottomGeom.renderedW,
@@ -379,6 +409,13 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   });
 
   ctx.restore();
+
+  // Last, so grain sits on top of literally everything -- photo, cutouts,
+  // and caption text alike -- matching how film grain sits on top of an
+  // actual printed poster rather than being just another background layer.
+  if (grainEnabled) {
+    drawFilmGrain(ctx, width, height, grainIntensity / 100);
+  }
 
   return canvas;
 }

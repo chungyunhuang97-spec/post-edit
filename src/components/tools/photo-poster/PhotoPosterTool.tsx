@@ -44,6 +44,9 @@ export function PhotoPosterTool() {
   const [exporting, setExporting] = useState(false);
   const [layout, setLayout] = useState<PosterLayoutId>("text-top");
   const [suggestingCaption, setSuggestingCaption] = useState(false);
+  const [duotoneEnabled, setDuotoneEnabled] = useState(false);
+  const [grainEnabled, setGrainEnabled] = useState(false);
+  const [grainIntensity, setGrainIntensity] = useState(30);
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -184,6 +187,9 @@ export function PhotoPosterTool() {
         pan,
         zoom,
         layout,
+        duotoneEnabled,
+        grainEnabled,
+        grainIntensity,
       });
 
       const blob = await new Promise<Blob | null>((resolve) => posterCanvas.toBlob(resolve, "image/png"));
@@ -214,6 +220,9 @@ export function PhotoPosterTool() {
     pan,
     zoom,
     layout,
+    duotoneEnabled,
+    grainEnabled,
+    grainIntensity,
   ]);
 
   if (!preset) {
@@ -279,6 +288,9 @@ export function PhotoPosterTool() {
             onPanChange={setPan}
             zoom={zoom}
             layout={layout}
+            duotoneEnabled={duotoneEnabled}
+            grainEnabled={grainEnabled}
+            grainIntensity={grainIntensity}
             onRequestUpload={handleRequestUpload}
             onFilesDropped={handleFileList}
           />
@@ -293,6 +305,12 @@ export function PhotoPosterTool() {
           onRequestUpload={handleRequestUpload}
           zoom={zoom}
           onZoomChange={setZoom}
+          duotoneEnabled={duotoneEnabled}
+          onDuotoneEnabledChange={setDuotoneEnabled}
+          grainEnabled={grainEnabled}
+          onGrainEnabledChange={setGrainEnabled}
+          grainIntensity={grainIntensity}
+          onGrainIntensityChange={setGrainIntensity}
           caption={caption}
           onCaptionChange={setCaption}
           onRegenerateCaption={handleRegenerateCaption}
