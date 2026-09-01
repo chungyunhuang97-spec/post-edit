@@ -44,7 +44,6 @@ export function PhotoPosterTool() {
   const [exporting, setExporting] = useState(false);
   const [layout, setLayout] = useState<PosterLayoutId>("text-top");
   const [suggestingCaption, setSuggestingCaption] = useState(false);
-  const [halftoneEnabled, setHalftoneEnabled] = useState(false);
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -185,7 +184,6 @@ export function PhotoPosterTool() {
         pan,
         zoom,
         layout,
-        halftoneEnabled,
       });
 
       const blob = await new Promise<Blob | null>((resolve) => posterCanvas.toBlob(resolve, "image/png"));
@@ -216,7 +214,6 @@ export function PhotoPosterTool() {
     pan,
     zoom,
     layout,
-    halftoneEnabled,
   ]);
 
   if (!preset) {
@@ -282,7 +279,6 @@ export function PhotoPosterTool() {
             onPanChange={setPan}
             zoom={zoom}
             layout={layout}
-            halftoneEnabled={halftoneEnabled}
             onRequestUpload={handleRequestUpload}
             onFilesDropped={handleFileList}
           />
@@ -328,8 +324,6 @@ export function PhotoPosterTool() {
           onTextColorChange={setTextColor}
           layout={layout}
           onLayoutChange={setLayout}
-          halftoneEnabled={halftoneEnabled}
-          onHalftoneEnabledChange={setHalftoneEnabled}
           onExport={handleExport}
           exporting={exporting}
         />

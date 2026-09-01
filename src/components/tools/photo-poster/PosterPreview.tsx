@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { OVERLAY_BAND_FRACTION, TOP_ZONE_FRACTION } from "./constants";
-import { drawHalftone } from "./halftone";
 import type { BracketOption, Cutout, FontOption, PosterLayoutId, ShapeOption } from "./types";
 import { buildCaptionTokens, clampPct } from "./useCutoutLayout";
 
@@ -71,7 +70,6 @@ export interface PosterPreviewProps {
   onPanChange: (next: { x: number; y: number }) => void;
   zoom: number;
   layout: PosterLayoutId;
-  halftoneEnabled: boolean;
   onRequestUpload: () => void;
   onFilesDropped: (files: FileList) => void;
 }
@@ -96,16 +94,12 @@ export function PosterPreview({
   onPanChange,
   zoom,
   layout,
-  halftoneEnabled,
   onRequestUpload,
   onFilesDropped,
 }: PosterPreviewProps) {
   const bottomZoneRef = useRef<HTMLDivElement>(null);
   const [boxSize, setBoxSize] = useState({ w: 0, h: 0 });
   const [natural, setNatural] = useState({ w: 0, h: 0 });
-  const textZoneRef = useRef<HTMLDivElement>(null);
-  const [textZoneSize, setTextZoneSize] = useState({ w: 0, h: 0 });
-  const halftoneCanvasRef = useRef<HTMLCanvasElement>(null);
   const dragState = useRef<{ id: string; startX: number; startY: number; originXPct: number; originYPct: number } | null>(
     null,
   );
@@ -130,48 +124,6 @@ export function PosterPreview({
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
-
-  useEffect(() => {
-    const el = textZoneRef.current;
-    if (!el) return;
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (!entry) return;
-      const { width: w, height: h } = entry.contentRect;
-      setTextZoneSize({ w, h });
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  // Redraws the halftone texture onto its own small <canvas> layered behind
-  // the caption text -- reloading the source image here (rather than
-  // reusing the photo zone's <img> background) keeps this effect self-
-  // contained and correct even when the photo zone and text zone are far
-  // apart in the DOM (the two overlay layouts nest them, but the other four
-  // don't).
-  useEffect(() => {
-    if (!halftoneEnabled || !imageUrl || !textZoneSize.w || !textZoneSize.h) return;
-    const canvas = halftoneCanvasRef.current;
-    if (!canvas) return;
-    let cancelled = false;
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = textZoneSize.w * dpr;
-    canvas.height = textZoneSize.h * dpr;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const img = new Image();
-    img.onload = () => {
-      if (cancelled) return;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, textZoneSize.w, textZoneSize.h);
-      drawHalftone(ctx, img, { x: 0, y: 0, w: textZoneSize.w, h: textZoneSize.h }, shape.id, textColor);
-    };
-    img.src = imageUrl;
-    return () => {
-      cancelled = true;
-    };
-  }, [halftoneEnabled, imageUrl, textZoneSize, shape.id, textColor]);
 
   const geometry = computeCoverGeometry(boxSize.w, boxSize.h, natural.w, natural.h, pan, zoom);
   const squareXPct = boxSize.w ? (squareSizePx / boxSize.w) * 100 : 0;
@@ -284,9 +236,8 @@ export function PosterPreview({
   const textZone = (
     <div
       key="text"
-      ref={textZoneRef}
       data-role="top-zone"
-      className={`relative isolate flex flex-shrink-0 flex-wrap content-center items-center justify-center gap-x-1 gap-y-2 overflow-hidden px-[6%] py-[7%] ${isOverlay ? "z-10" : ""}`}
+      className={`flex flex-shrink-0 flex-wrap content-center items-center justify-center gap-x-1 gap-y-2 overflow-hidden px-[6%] py-[7%] ${isOverlay ? "z-10" : ""}`}
       style={{
         color: textColor,
         fontFamily: `${fontOption.cssVar}, ${fontOption.fallback}`,
@@ -296,13 +247,6 @@ export function PosterPreview({
         ...overlayTextStyle,
       }}
     >
-      {halftoneEnabled && (
-        <canvas
-          ref={halftoneCanvasRef}
-          className="pointer-events-none absolute inset-0 -z-10"
-          style={{ width: "100%", height: "100%" }}
-        />
-      )}
       {tokens.map((token, i) =>
         token.kind === "word" ? (
           <span key={i}>{token.text}</span>
