@@ -4,13 +4,15 @@ import { useState } from "react";
 import { BRACKET_OPTIONS, COLLAGE_OPTIONS, FONT_OPTIONS, LAYOUT_OPTIONS, SHAPE_OPTIONS, STYLE_PRESETS } from "./constants";
 import type { BracketStyleId, CanvasPreset, CollageLayoutId, Cutout, FontOptionId, PosterLayoutId, ShapeId, StylePreset } from "./types";
 
-type TabId = "style" | "photo" | "caption" | "shapes" | "layout" | "text";
+type TabId = "layout" | "style" | "photo" | "caption" | "shapes" | "text";
+// 版型 leads -- it's where how-many-photos (拼貼方式) lives, and that's the
+// first decision a new poster needs, before style/photo/caption make sense.
 const TABS: { id: TabId; label: string }[] = [
+  { id: "layout", label: "版型" },
   { id: "style", label: "風格" },
   { id: "photo", label: "照片" },
   { id: "caption", label: "文案" },
   { id: "shapes", label: "圖形" },
-  { id: "layout", label: "版型" },
   { id: "text", label: "文字" },
 ];
 
@@ -181,7 +183,7 @@ export function ControlPanel(props: ControlPanelProps) {
     exporting,
   } = props;
 
-  const [activeTab, setActiveTab] = useState<TabId>("style");
+  const [activeTab, setActiveTab] = useState<TabId>("layout");
 
   return (
     <div className="flex h-full min-h-0 flex-col text-sm">
@@ -239,23 +241,11 @@ export function ControlPanel(props: ControlPanelProps) {
 
         {activeTab === "photo" && (
           <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-              <span className="text-xs text-ink-muted">拼貼方式</span>
-              <div className="grid grid-cols-3 gap-2">
-                {COLLAGE_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => onCollageLayoutChange(opt.id)}
-                    className={`rounded-md border px-2 py-1.5 text-xs font-medium transition ${
-                      collageLayoutId === opt.id ? "border-accent bg-accent-soft text-accent" : "border-line bg-surface-2 text-ink-muted"
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+            {collageLayoutId !== "single" && (
+              <p className="text-xs text-ink-faint">
+                目前是拼貼模式（{COLLAGE_OPTIONS.find((o) => o.id === collageLayoutId)?.label}），可到「版型」分頁改回單張照片。
+              </p>
+            )}
 
             {uploadError && (
               <p className="rounded-md border border-red-400/40 bg-red-400/10 px-3 py-2 text-xs text-red-300">
@@ -465,6 +455,26 @@ export function ControlPanel(props: ControlPanelProps) {
 
         {activeTab === "layout" && (
           <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <span className="text-xs text-ink-muted">拼貼方式（照片張數）</span>
+              <div className="grid grid-cols-3 gap-2">
+                {COLLAGE_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => onCollageLayoutChange(opt.id)}
+                    className={`rounded-md border px-2 py-1.5 text-xs font-medium transition ${
+                      collageLayoutId === opt.id ? "border-accent bg-accent-soft text-accent" : "border-line bg-surface-2 text-ink-muted"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              {collageLayoutId !== "single" && (
+                <p className="text-[11px] text-ink-faint">到「照片」分頁可以上傳第二張照片。</p>
+              )}
+            </div>
             <div className="flex flex-col gap-2">
               <p className="text-xs text-ink-muted">文字與照片的排版方式</p>
               <div className="grid grid-cols-2 gap-2">
