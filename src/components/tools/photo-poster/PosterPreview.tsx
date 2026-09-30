@@ -1,15 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { OVERLAY_BAND_FRACTION, TOP_ZONE_FRACTION } from "./constants";
 import { applyDuotone } from "./duotone";
 import { drawFilmGrain } from "./grain";
 import { drawSubjectHalftone } from "./subjectHalftone";
 import type { SubjectMask } from "./subjectSegmentation";
-import type { BracketOption, Cutout, FontOption, PosterLayoutId, ShapeOption } from "./types";
+import type { BracketOption, CollageLayoutId, Cutout, FontOption, PosterLayoutId, ShapeOption } from "./types";
 import { buildCaptionTokens, clampPct } from "./useCutoutLayout";
 
 const DUOTONE_PREVIEW_MAX_DIMENSION = 900;
+const CENTER_PAN = { x: 0.5, y: 0.5 };
 
 interface CoverGeometry {
   boxW: number;
@@ -56,9 +57,71 @@ function computeCoverGeometry(
   };
 }
 
+/** Tracks a photo's natural (unscaled) pixel dimensions -- shared by both
+ * the primary and the collage-mode second photo, so cover-fit geometry can
+ * be computed for either. */
+function useNaturalSize(imageUrl: string | null): { w: number; h: number } {
+  const [natural, setNatural] = useState({ w: 0, h: 0 });
+  useEffect(() => {
+    if (!imageUrl) return;
+    const img = new Image();
+    img.onload = () => setNatural({ w: img.naturalWidth, h: img.naturalHeight });
+    img.src = imageUrl;
+  }, [imageUrl]);
+  return natural;
+}
+
+/** Recolors a photo into a two-tone dark/light duotone (see duotone.ts)
+ * whenever `enabled`, returning the resulting blob URL -- shared by both
+ * the primary and the collage-mode second photo. Runs at a capped working
+ * resolution since the live preview never needs full photo resolution. */
+function useDuotoneUrl(
+  imageUrl: string | null,
+  natural: { w: number; h: number },
+  enabled: boolean,
+  darkColor: string,
+  lightColor: string,
+): string | null {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    // No explicit "reset to null" here when disabled -- callers already
+    // ignore this url whenever `enabled` is false, so a stale (and by then
+    // already-revoked, via this same effect's own cleanup on the *previous*
+    // run) URL sitting unused in state is harmless, and re-enabling later
+    // just overwrites it with a fresh one.
+    if (!enabled || !imageUrl || !natural.w || !natural.h) return;
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    const img = new Image();
+    img.onload = () => {
+      if (cancelled) return;
+      const canvas = applyDuotone(img, natural.w, natural.h, darkColor, lightColor, DUOTONE_PREVIEW_MAX_DIMENSION);
+      canvas.toBlob((blob) => {
+        if (cancelled || !blob) return;
+        objectUrl = URL.createObjectURL(blob);
+        setUrl(objectUrl);
+      });
+    };
+    img.src = imageUrl;
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [enabled, imageUrl, natural.w, natural.h, darkColor, lightColor]);
+  return url;
+}
+
 export interface PosterPreviewProps {
   canvasRef: React.RefObject<HTMLDivElement | null>;
   imageUrl: string | null;
+  uploadError: string | null;
+  /** Second photo + its own upload error, only rendered once
+   * collageLayoutId is a "duo-*" arrangement. */
+  imageUrl2: string | null;
+  uploadError2: string | null;
+  collageLayoutId: CollageLayoutId;
+  onRequestUpload2: () => void;
+  onFilesDropped2: (files: FileList) => void;
   caption: string;
   cutouts: Cutout[];
   onCutoutsChange: (next: Cutout[]) => void;
@@ -88,6 +151,12 @@ export interface PosterPreviewProps {
 export function PosterPreview({
   canvasRef,
   imageUrl,
+  uploadError,
+  imageUrl2,
+  uploadError2,
+  collageLayoutId,
+  onRequestUpload2,
+  onFilesDropped2,
   caption,
   cutouts,
   onCutoutsChange,
@@ -113,13 +182,9 @@ export function PosterPreview({
   onRequestUpload,
   onFilesDropped,
 }: PosterPreviewProps) {
-  const bottomZoneRef = useRef<HTMLDivElement>(null);
   const [boxSize, setBoxSize] = useState({ w: 0, h: 0 });
-  const [natural, setNatural] = useState({ w: 0, h: 0 });
-  const [duotoneUrl, setDuotoneUrl] = useState<string | null>(null);
   const [frameSize, setFrameSize] = useState({ w: 0, h: 0 });
   const grainCanvasRef = useRef<HTMLCanvasElement>(null);
-  const textZoneRef = useRef<HTMLDivElement>(null);
   const [textZoneSize, setTextZoneSize] = useState({ w: 0, h: 0 });
   const subjectHalftoneCanvasRef = useRef<HTMLCanvasElement>(null);
   const dragState = useRef<{ id: string; startX: number; startY: number; originXPct: number; originYPct: number } | null>(
@@ -127,15 +192,28 @@ export function PosterPreview({
   );
   const panDragState = useRef<{ startX: number; startY: number; originPanX: number; originPanY: number } | null>(null);
 
-  useEffect(() => {
-    if (!imageUrl) return;
-    const img = new Image();
-    img.onload = () => setNatural({ w: img.naturalWidth, h: img.naturalHeight });
-    img.src = imageUrl;
-  }, [imageUrl]);
+  const isDuo = collageLayoutId !== "single";
 
-  useEffect(() => {
-    const el = bottomZoneRef.current;
+  const natural = useNaturalSize(imageUrl);
+  const natural2 = useNaturalSize(imageUrl2);
+
+  // A *callback* ref, not useRef+useEffect([]) -- the photo zone's own div
+  // gets torn down and remounted as a fresh DOM node whenever the layout
+  // switches into/out of the two "overlay" arrangements (its position in
+  // the tree changes depth: a sibling of the text zone in the 4 split
+  // layouts, but the text zone's own *parent* in the overlay layouts, which
+  // React can't reconcile as "the same" node across). A useEffect with an
+  // empty dependency array only ever attaches once, so after that first
+  // remount it would keep observing the old, now-detached element forever
+  // -- boxSize freezing in place (often at 0x0) and the photo silently
+  // vanishing (background-size collapses to "0px 0px") on every layout
+  // switch after the first overlay one, with no way to recover short of a
+  // full page reload. A callback ref re-fires on every attach, old node or
+  // new, so it always ends up observing whichever element is actually live.
+  const boxObserverRef = useRef<ResizeObserver | null>(null);
+  const bottomZoneRef = useCallback((el: HTMLDivElement | null) => {
+    boxObserverRef.current?.disconnect();
+    boxObserverRef.current = null;
     if (!el) return;
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
@@ -144,44 +222,17 @@ export function PosterPreview({
       setBoxSize({ w, h });
     });
     observer.observe(el);
-    return () => observer.disconnect();
+    boxObserverRef.current = observer;
   }, []);
 
-  // Recolors the photo into two tones (dark/light, reusing the existing
-  // topBgColor/textColor pickers rather than adding new ones) whenever
-  // duotone is on -- the resulting blob URL replaces the plain imageUrl
-  // everywhere the photo is painted, below. Runs at a capped working
-  // resolution since the live preview never needs full photo resolution.
-  useEffect(() => {
-    // No explicit "reset to null" here when disabled -- displayImageUrl
-    // below already ignores duotoneUrl whenever duotoneEnabled is false, so
-    // a stale (and by then already-revoked, via this same effect's own
-    // cleanup on the *previous* run) URL sitting unused in state is
-    // harmless, and re-enabling later just overwrites it with a fresh one.
-    if (!duotoneEnabled || !imageUrl || !natural.w || !natural.h) return;
-    let cancelled = false;
-    let objectUrl: string | null = null;
-    const img = new Image();
-    img.onload = () => {
-      if (cancelled) return;
-      const canvas = applyDuotone(img, natural.w, natural.h, topBgColor, textColor, DUOTONE_PREVIEW_MAX_DIMENSION);
-      canvas.toBlob((blob) => {
-        if (cancelled || !blob) return;
-        objectUrl = URL.createObjectURL(blob);
-        setDuotoneUrl(objectUrl);
-      });
-    };
-    img.src = imageUrl;
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [duotoneEnabled, imageUrl, natural.w, natural.h, topBgColor, textColor]);
+  const duotoneUrl = useDuotoneUrl(imageUrl, natural, duotoneEnabled, topBgColor, textColor);
+  const duotoneUrl2 = useDuotoneUrl(imageUrl2, natural2, duotoneEnabled, topBgColor, textColor);
 
   // Falls back to the plain photo while the duotone recolor is still being
   // computed (async, one extra frame or two) so toggling it on doesn't
   // flash the photo away for an instant.
   const displayImageUrl = duotoneEnabled ? (duotoneUrl ?? imageUrl) : imageUrl;
+  const displayImageUrl2 = duotoneEnabled ? (duotoneUrl2 ?? imageUrl2) : imageUrl2;
 
   useEffect(() => {
     const el = canvasRef.current;
@@ -212,8 +263,15 @@ export function PosterPreview({
     drawFilmGrain(ctx, canvas.width, canvas.height, grainIntensity / 100);
   }, [grainEnabled, grainIntensity, frameSize]);
 
-  useEffect(() => {
-    const el = textZoneRef.current;
+  // Same callback-ref reasoning as bottomZoneRef above -- the text zone's
+  // div moves between being canvasRef's direct sibling and being nested
+  // inside the photo zone across the overlay/non-overlay layout switch, so
+  // a plain useRef+useEffect([]) would silently stop tracking its size
+  // after the first such switch.
+  const textZoneObserverRef = useRef<ResizeObserver | null>(null);
+  const textZoneRef = useCallback((el: HTMLDivElement | null) => {
+    textZoneObserverRef.current?.disconnect();
+    textZoneObserverRef.current = null;
     if (!el) return;
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0];
@@ -222,7 +280,7 @@ export function PosterPreview({
       setTextZoneSize({ w, h });
     });
     observer.observe(el);
-    return () => observer.disconnect();
+    textZoneObserverRef.current = observer;
   }, []);
 
   // Renders a dot-matrix silhouette of whatever subjectMask detected in the
@@ -254,7 +312,19 @@ export function PosterPreview({
     };
   }, [subjectHalftoneEnabled, subjectMask, imageUrl, textZoneSize, shape.id, textColor]);
 
-  const geometry = computeCoverGeometry(boxSize.w, boxSize.h, natural.w, natural.h, pan, zoom);
+  // In a duo collage, each photo only ever fills its own half of the photo
+  // zone -- halved on whichever axis the split runs along, full-size on the
+  // other. In single mode this collapses back to the full box, so `geometry`
+  // below is exactly what it always was.
+  const paneBoxW = collageLayoutId === "duo-h" ? boxSize.w / 2 : boxSize.w;
+  const paneBoxH = collageLayoutId === "duo-v" ? boxSize.h / 2 : boxSize.h;
+
+  const geometry = computeCoverGeometry(paneBoxW, paneBoxH, natural.w, natural.h, isDuo ? CENTER_PAN : pan, zoom);
+  // The second photo doesn't get its own drag-to-pan handle (two
+  // independently-dragged crops inside one small preview box got confusing
+  // fast) -- it always centers within its pane, but still honors the shared
+  // zoom slider so both halves can be framed tighter together.
+  const geometry2 = computeCoverGeometry(paneBoxW, paneBoxH, natural2.w, natural2.h, CENTER_PAN, zoom);
   const squareXPct = boxSize.w ? (squareSizePx / boxSize.w) * 100 : 0;
   const squareYPct = boxSize.h ? (squareSizePx / boxSize.h) * 100 : 0;
 
@@ -265,8 +335,10 @@ export function PosterPreview({
   // of it the "cover" crop shows -- separate from the cutout-square drag
   // above since it's attached to a different element (squares sit on top
   // and capture their own pointer events first, so there's no conflict).
+  // Disabled in duo mode (see geometry/geometry2 above -- both photos stay
+  // centered on their own pane there).
   function handlePhotoPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
-    if (locked || !boxSize.w || !boxSize.h) return;
+    if (locked || isDuo || !boxSize.w || !boxSize.h) return;
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     panDragState.current = { startX: e.clientX, startY: e.clientY, originPanX: pan.x, originPanY: pan.y };
   }
@@ -274,8 +346,8 @@ export function PosterPreview({
   function handlePhotoPointerMove(e: ReactPointerEvent<HTMLDivElement>) {
     const drag = panDragState.current;
     if (!drag) return;
-    const slackX = geometry.renderedW - boxSize.w;
-    const slackY = geometry.renderedH - boxSize.h;
+    const slackX = geometry.renderedW - paneBoxW;
+    const slackY = geometry.renderedH - paneBoxH;
     const dx = e.clientX - drag.startX;
     const dy = e.clientY - drag.startY;
     // Dragging right should reveal more of the image's left side (the
@@ -316,20 +388,27 @@ export function PosterPreview({
   }
 
   function thumbStyle(cutout: Cutout): React.CSSProperties {
+    // In a duo collage a cutout's crop could fall over either photo, and
+    // the caption thumbnail has no easy way to say which -- so instead of
+    // guessing, duo mode always shows these as flat color chips (the same
+    // "no photo" fallback single mode already uses before any photo is
+    // uploaded), matching the solid sticker each one already paints onto
+    // the photo zone itself.
+    const thumbImage = isDuo ? null : displayImageUrl;
     // xPct/yPct are relative to the *visible* box, not the full scaled
     // image. The box's own viewport starts `-offsetX`/`-offsetY` pixels
     // into the scaled image (offsetX/Y are <= 0, per computeCoverGeometry),
     // so that's the base to add the on-box pixel offset to, giving the
     // target point's position within the full scaled image.
-    const left = -geometry.offsetX + (cutout.xPct / 100) * boxSize.w;
-    const top = -geometry.offsetY + (cutout.yPct / 100) * boxSize.h;
+    const left = -geometry.offsetX + (cutout.xPct / 100) * paneBoxW;
+    const top = -geometry.offsetY + (cutout.yPct / 100) * paneBoxH;
     return {
       width: squareSizePx,
       height: squareSizePx,
       display: "inline-block",
       verticalAlign: "middle",
-      backgroundImage: displayImageUrl ? `url(${displayImageUrl})` : undefined,
-      backgroundColor: displayImageUrl ? undefined : "#d4d4d8",
+      backgroundImage: thumbImage ? `url(${thumbImage})` : undefined,
+      backgroundColor: thumbImage ? undefined : (cutout.color ?? "#d4d4d8"),
       backgroundSize: `${geometry.renderedW}px ${geometry.renderedH}px`,
       // Negate numerically (not by string-prefixing "-") since left/top are
       // already negative whenever the cover-cropped image overflows its
@@ -398,39 +477,72 @@ export function PosterPreview({
     </div>
   );
 
+  function photoPane(
+    url: string | null,
+    displayUrl: string | null,
+    geom: CoverGeometry,
+    draggable: boolean,
+    onUpload: () => void,
+    onDrop: (files: FileList) => void,
+    error: string | null,
+    // Ctrl/Cmd+V paste always targets the first photo slot (see the paste
+    // listener in PhotoPosterTool.tsx), so only that slot's empty-state
+    // hints at it.
+    pasteHint: boolean,
+  ) {
+    if (!url) {
+      return (
+        <div
+          onClick={onUpload}
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            onDrop(e.dataTransfer.files);
+          }}
+          className="absolute inset-2 flex cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-line px-4 text-center text-ink-faint transition hover:border-accent hover:text-accent"
+        >
+          <span className="text-sm font-medium">點擊上傳照片</span>
+          <span className="text-xs">或拖曳圖片到此處{pasteHint ? "，或 Ctrl/Cmd+V 貼上" : ""}</span>
+          {error && <span className="mt-2 text-xs text-red-400">{error}</span>}
+        </div>
+      );
+    }
+    return (
+      <div
+        onPointerDown={draggable ? handlePhotoPointerDown : undefined}
+        onPointerMove={draggable ? handlePhotoPointerMove : undefined}
+        onPointerUp={draggable ? handlePhotoPointerUp : undefined}
+        className="absolute inset-0"
+        style={{
+          backgroundImage: `url(${displayUrl})`,
+          backgroundSize: `${geom.renderedW}px ${geom.renderedH}px`,
+          backgroundPosition: `${geom.offsetX}px ${geom.offsetY}px`,
+          backgroundRepeat: "no-repeat",
+          cursor: draggable && !locked ? "grab" : "default",
+        }}
+      />
+    );
+  }
+
   const photoZone = (
     <div
       key="photo"
       ref={bottomZoneRef}
-      className="relative min-h-0 min-w-0 flex-1 select-none touch-none bg-surface-2"
+      className={`relative flex min-h-0 min-w-0 flex-1 select-none touch-none gap-px bg-surface-2 ${
+        collageLayoutId === "duo-v" ? "flex-col" : "flex-row"
+      }`}
     >
-      {imageUrl ? (
-        <div
-          onPointerDown={handlePhotoPointerDown}
-          onPointerMove={handlePhotoPointerMove}
-          onPointerUp={handlePhotoPointerUp}
-          className="absolute inset-0"
-          style={{
-            backgroundImage: `url(${displayImageUrl})`,
-            backgroundSize: `${geometry.renderedW}px ${geometry.renderedH}px`,
-            backgroundPosition: `${geometry.offsetX}px ${geometry.offsetY}px`,
-            backgroundRepeat: "no-repeat",
-            cursor: locked ? "default" : "grab",
-          }}
-        />
+      {isDuo ? (
+        <>
+          <div className="relative min-h-0 min-w-0 flex-1">
+            {photoPane(imageUrl, displayImageUrl, geometry, false, onRequestUpload, onFilesDropped, uploadError, true)}
+          </div>
+          <div className="relative min-h-0 min-w-0 flex-1">
+            {photoPane(imageUrl2, displayImageUrl2, geometry2, false, onRequestUpload2, onFilesDropped2, uploadError2, false)}
+          </div>
+        </>
       ) : (
-        <div
-          onClick={onRequestUpload}
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => {
-            e.preventDefault();
-            onFilesDropped(e.dataTransfer.files);
-          }}
-          className="absolute inset-2 flex cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-line text-center text-ink-faint transition hover:border-accent hover:text-accent"
-        >
-          <span className="text-sm font-medium">點擊上傳照片</span>
-          <span className="text-xs">或拖曳圖片到此處，或 Ctrl/Cmd+V 貼上</span>
-        </div>
+        photoPane(imageUrl, displayImageUrl, geometry, true, onRequestUpload, onFilesDropped, uploadError, true)
       )}
       {imageUrl &&
         cutouts.map((cutout) => (

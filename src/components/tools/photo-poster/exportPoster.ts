@@ -3,7 +3,7 @@ import { applyDuotone } from "./duotone";
 import { drawFilmGrain } from "./grain";
 import { drawSubjectHalftone } from "./subjectHalftone";
 import type { SubjectMask } from "./subjectSegmentation";
-import type { BracketOption, Cutout, PosterLayoutId, ShapeOption } from "./types";
+import type { BracketOption, CollageLayoutId, Cutout, PosterLayoutId, ShapeOption } from "./types";
 import { buildCaptionTokens } from "./useCutoutLayout";
 import { canvasShapePath } from "./shapes";
 
@@ -13,6 +13,9 @@ import { canvasShapePath } from "./shapes";
 // here than speed, but an uncapped multi-thousand-pixel DSLR photo would
 // still make the per-pixel recolor loop needlessly slow.
 const DUOTONE_EXPORT_MAX_DIMENSION = 3000;
+// Matches PosterPreview.tsx: in a duo collage neither photo gets a
+// drag-to-pan handle, so both simply center within their own half.
+const CENTER_PAN = { x: 0.5, y: 0.5 };
 
 interface CoverGeometry {
   renderedW: number;
@@ -135,10 +138,34 @@ function computeZones(layout: PosterLayoutId, width: number, height: number): { 
   };
 }
 
+/** Mirrors PosterPreview.tsx's paneBoxW/paneBoxH split -- in "single" mode
+ * both panes are just the whole photo zone (paneB is simply unused by
+ * callers then); "duo-h"/"duo-v" halve it along the matching axis. */
+function splitPanes(zone: ZoneRect, collageLayoutId: CollageLayoutId): [ZoneRect, ZoneRect] {
+  if (collageLayoutId === "duo-h") {
+    const w = zone.w / 2;
+    return [
+      { x: zone.x, y: zone.y, w, h: zone.h },
+      { x: zone.x + w, y: zone.y, w: zone.w - w, h: zone.h },
+    ];
+  }
+  if (collageLayoutId === "duo-v") {
+    const h = zone.h / 2;
+    return [
+      { x: zone.x, y: zone.y, w: zone.w, h },
+      { x: zone.x, y: zone.y + h, w: zone.w, h: zone.h - h },
+    ];
+  }
+  return [zone, zone];
+}
+
 export interface RenderPosterParams {
   width: number;
   height: number;
   imageUrl: string;
+  /** Second photo, only drawn when collageLayoutId isn't "single". */
+  imageUrl2: string | null;
+  collageLayoutId: CollageLayoutId;
   caption: string;
   cutouts: Cutout[];
   shape: ShapeOption;
@@ -193,6 +220,8 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
     width,
     height,
     imageUrl,
+    imageUrl2,
+    collageLayoutId,
     caption,
     cutouts,
     shape,
@@ -241,6 +270,8 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   ctx.fillStyle = topBgColor;
   ctx.fillRect(0, 0, width, height);
 
+  const isDuo = collageLayoutId !== "single";
+
   const img = await loadImage(imageUrl);
   // Recolored once up front (rather than per drawImage call below) so
   // every place the photo gets painted -- the main photo zone and the
@@ -253,6 +284,18 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
     : img;
   const srcW = duotoneEnabled ? (photoSource as HTMLCanvasElement).width : img.naturalWidth;
   const srcH = duotoneEnabled ? (photoSource as HTMLCanvasElement).height : img.naturalHeight;
+
+  // Second photo, only loaded in a duo collage that actually has one --
+  // its absence (slot not filled in yet) just leaves that pane showing the
+  // canvas's base topBgColor fill underneath.
+  const img2 = isDuo && imageUrl2 ? await loadImage(imageUrl2) : null;
+  const photoSource2: CanvasImageSource | null = img2
+    ? duotoneEnabled
+      ? applyDuotone(img2, img2.naturalWidth, img2.naturalHeight, topBgColor, textColor, DUOTONE_EXPORT_MAX_DIMENSION)
+      : img2
+    : null;
+  const srcW2 = photoSource2 ? (duotoneEnabled ? (photoSource2 as HTMLCanvasElement).width : img2!.naturalWidth) : 0;
+  const srcH2 = photoSource2 ? (duotoneEnabled ? (photoSource2 as HTMLCanvasElement).height : img2!.naturalHeight) : 0;
 
   ctx.font = `${fontPx}px ${fontFamily}`;
   const bracketOpenW = bracket.open ? ctx.measureText(bracket.open).width : 0;
@@ -292,7 +335,11 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   const rowHeights = lines.map((line) => (line.some((it) => it.kind === "cutout") ? Math.max(lineHeight, squarePx) : lineHeight));
   const totalTextHeight = rowHeights.reduce((a, b) => a + b, 0) + gapY * Math.max(0, lines.length - 1);
 
-  const bottomGeom = coverGeometry(photoZone.w, photoZone.h, srcW, srcH, pan, zoom);
+  // In "single" mode paneA is exactly photoZone and paneB is unused; a duo
+  // collage halves the zone along the matching axis (see splitPanes above).
+  const [paneA, paneB] = splitPanes(photoZone, collageLayoutId);
+  const bottomGeom = coverGeometry(paneA.w, paneA.h, srcW, srcH, isDuo ? CENTER_PAN : pan, zoom);
+  const paneBGeom = photoSource2 ? coverGeometry(paneB.w, paneB.h, srcW2, srcH2, CENTER_PAN, zoom) : null;
   const cutoutById = new Map(cutouts.map((c) => [c.id, c]));
 
   function cutoutImagePoint(cutout: Cutout) {
@@ -300,23 +347,25 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
     // top-left point falls within the full *scaled* source image --
     // zone-local, since PosterPreview's ResizeObserver measurement (which
     // this mirrors) is always relative to the photo zone's own box
-    // regardless of where that box sits on the canvas.
+    // regardless of where that box sits on the canvas. Only meaningful in
+    // single-photo mode -- see the duo-mode fallback in the paint pass below.
     return {
-      left: -bottomGeom.offsetX + (cutout.xPct / 100) * photoZone.w,
-      top: -bottomGeom.offsetY + (cutout.yPct / 100) * photoZone.h,
+      left: -bottomGeom.offsetX + (cutout.xPct / 100) * paneA.w,
+      top: -bottomGeom.offsetY + (cutout.yPct / 100) * paneA.h,
     };
   }
 
-  // --- Photo zone: full photo, then the shaped mask "holes" -- painted
-  // *before* the text pass so that for the overlay layouts (where the
-  // text zone's band physically sits on top of the photo zone, unlike the
-  // 4 non-overlapping splits where paint order doesn't matter) the text
-  // band's opaque fill and the caption text both end up on top of the
-  // photo, not underneath it. ---
+  // --- Photo zone: full photo (or, in a duo collage, both photos side by
+  // side/stacked), then the shaped mask "holes" -- painted *before* the
+  // text pass so that for the overlay layouts (where the text zone's band
+  // physically sits on top of the photo zone, unlike the 4 non-overlapping
+  // splits where paint order doesn't matter) the text band's opaque fill
+  // and the caption text both end up on top of the photo, not underneath
+  // it. ---
   if (photoZone.w > 0 && photoZone.h > 0) {
     ctx.save();
     ctx.beginPath();
-    ctx.rect(photoZone.x, photoZone.y, photoZone.w, photoZone.h);
+    ctx.rect(paneA.x, paneA.y, paneA.w, paneA.h);
     ctx.clip();
     ctx.drawImage(
       photoSource,
@@ -324,12 +373,31 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
       0,
       srcW,
       srcH,
-      photoZone.x + bottomGeom.offsetX,
-      photoZone.y + bottomGeom.offsetY,
+      paneA.x + bottomGeom.offsetX,
+      paneA.y + bottomGeom.offsetY,
       bottomGeom.renderedW,
       bottomGeom.renderedH,
     );
     ctx.restore();
+
+    if (isDuo && photoSource2 && paneBGeom) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(paneB.x, paneB.y, paneB.w, paneB.h);
+      ctx.clip();
+      ctx.drawImage(
+        photoSource2,
+        0,
+        0,
+        srcW2,
+        srcH2,
+        paneB.x + paneBGeom.offsetX,
+        paneB.y + paneBGeom.offsetY,
+        paneBGeom.renderedW,
+        paneBGeom.renderedH,
+      );
+      ctx.restore();
+    }
 
     ctx.shadowColor = "rgba(0,0,0,0.25)";
     ctx.shadowBlur = 4 * scale;
@@ -397,9 +465,9 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
       if (bracket.open) ctx.fillText(bracket.open, drawX, baselineY);
       const imgX = drawX + bracketOpenW;
 
-      if (photoZone.w > 0 && photoZone.h > 0) {
+      const path = canvasShapePath(shape.id, imgX, boxY, squarePx);
+      if (!isDuo && photoZone.w > 0 && photoZone.h > 0) {
         const { left, top } = cutoutImagePoint(cutout);
-        const path = canvasShapePath(shape.id, imgX, boxY, squarePx);
         ctx.save();
         ctx.clip(path);
         ctx.drawImage(
@@ -414,6 +482,15 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
           bottomGeom.renderedH,
         );
         ctx.restore();
+      } else if (isDuo) {
+        // A duo collage's cutout could fall over either photo, with no easy
+        // way to say which -- so instead of guessing, these draw as flat
+        // color chips, matching the solid sticker each already paints onto
+        // the photo zone itself (see the fillStyle loop above).
+        const prevFill = ctx.fillStyle;
+        ctx.fillStyle = cutout.color ?? topBgColor;
+        ctx.fill(path);
+        ctx.fillStyle = prevFill;
       }
 
       if (bracket.close) ctx.fillText(bracket.close, imgX + squarePx, baselineY);

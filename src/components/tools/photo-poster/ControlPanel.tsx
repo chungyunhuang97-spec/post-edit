@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { BRACKET_OPTIONS, FONT_OPTIONS, LAYOUT_OPTIONS, SHAPE_OPTIONS, STYLE_PRESETS } from "./constants";
-import type { BracketStyleId, CanvasPreset, Cutout, FontOptionId, PosterLayoutId, ShapeId, StylePreset } from "./types";
+import { BRACKET_OPTIONS, COLLAGE_OPTIONS, FONT_OPTIONS, LAYOUT_OPTIONS, SHAPE_OPTIONS, STYLE_PRESETS } from "./constants";
+import type { BracketStyleId, CanvasPreset, CollageLayoutId, Cutout, FontOptionId, PosterLayoutId, ShapeId, StylePreset } from "./types";
 
 type TabId = "style" | "photo" | "caption" | "shapes" | "layout" | "text";
 const TABS: { id: TabId; label: string }[] = [
@@ -63,7 +63,11 @@ export interface ControlPanelProps {
   onApplyStylePreset: (preset: StylePreset) => void;
 
   imageUrl: string | null;
+  uploadError: string | null;
   onRequestUpload: () => void;
+  imageUrl2: string | null;
+  uploadError2: string | null;
+  onRequestUpload2: () => void;
 
   zoom: number;
   onZoomChange: (n: number) => void;
@@ -108,6 +112,8 @@ export interface ControlPanelProps {
 
   layout: PosterLayoutId;
   onLayoutChange: (id: PosterLayoutId) => void;
+  collageLayoutId: CollageLayoutId;
+  onCollageLayoutChange: (id: CollageLayoutId) => void;
   subjectHalftoneEnabled: boolean;
   onSubjectHalftoneEnabledChange: (enabled: boolean) => void;
   subjectHalftoneStatus: "idle" | "loading" | "ready" | "unavailable";
@@ -122,7 +128,11 @@ export function ControlPanel(props: ControlPanelProps) {
     onChangeSize,
     onApplyStylePreset,
     imageUrl,
+    uploadError,
     onRequestUpload,
+    imageUrl2,
+    uploadError2,
+    onRequestUpload2,
     zoom,
     onZoomChange,
     duotoneEnabled,
@@ -162,6 +172,8 @@ export function ControlPanel(props: ControlPanelProps) {
     onTextColorChange,
     layout,
     onLayoutChange,
+    collageLayoutId,
+    onCollageLayoutChange,
     subjectHalftoneEnabled,
     onSubjectHalftoneEnabledChange,
     subjectHalftoneStatus,
@@ -227,6 +239,44 @@ export function ControlPanel(props: ControlPanelProps) {
 
         {activeTab === "photo" && (
           <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+              <span className="text-xs text-ink-muted">拼貼方式</span>
+              <div className="grid grid-cols-3 gap-2">
+                {COLLAGE_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => onCollageLayoutChange(opt.id)}
+                    className={`rounded-md border px-2 py-1.5 text-xs font-medium transition ${
+                      collageLayoutId === opt.id ? "border-accent bg-accent-soft text-accent" : "border-line bg-surface-2 text-ink-muted"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {uploadError && (
+              <p className="rounded-md border border-red-400/40 bg-red-400/10 px-3 py-2 text-xs text-red-300">
+                {uploadError}
+              </p>
+            )}
+
+            {collageLayoutId !== "single" && (
+              <div className="flex flex-col gap-2 rounded-md border border-line bg-surface-2 px-3 py-2">
+                <span className="text-xs font-medium text-ink">第二張照片</span>
+                {uploadError2 && <p className="text-xs text-red-300">{uploadError2}</p>}
+                <button
+                  type="button"
+                  onClick={onRequestUpload2}
+                  className="rounded-md border border-line bg-surface px-3 py-2 text-xs font-medium text-ink-muted transition hover:border-accent hover:text-accent"
+                >
+                  {imageUrl2 ? "變更第二張照片" : "上傳第二張照片"}
+                </button>
+              </div>
+            )}
+
             {imageUrl ? (
               <>
                 <label className="flex flex-col gap-1">
@@ -242,14 +292,16 @@ export function ControlPanel(props: ControlPanelProps) {
                     value={zoom}
                     onChange={(e) => onZoomChange(Number(e.target.value))}
                   />
-                  <span className="text-xs text-ink-faint">直接拖曳上方預覽的照片可調整顯示位置</span>
+                  <span className="text-xs text-ink-faint">
+                    {collageLayoutId === "single" ? "直接拖曳上方預覽的照片可調整顯示位置" : "拼貼模式下兩張照片皆置中裁切，縮放仍共用這個滑桿"}
+                  </span>
                 </label>
                 <button
                   type="button"
                   onClick={onRequestUpload}
                   className="rounded-md border border-line bg-surface-2 px-3 py-2 text-xs font-medium text-ink-muted transition hover:border-accent hover:text-accent"
                 >
-                  變更照片
+                  {collageLayoutId === "single" ? "變更照片" : "變更第一張照片"}
                 </button>
                 <label className="flex items-center justify-between rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-muted">
                   <span className="flex flex-col gap-0.5">

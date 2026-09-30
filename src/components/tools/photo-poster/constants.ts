@@ -1,6 +1,6 @@
 import type { PhotoMood } from "./photoMood";
 import { clipPathFor } from "./shapes";
-import type { BracketOption, CanvasPreset, FontOption, LayoutOption, ShapeId, ShapeOption, StylePreset } from "./types";
+import type { BracketOption, CanvasPreset, CollageOption, FontOption, LayoutOption, ShapeId, ShapeOption, StylePreset } from "./types";
 
 // The caption/thumbnail zone is always exactly this fraction of the canvas
 // height -- a fixed half-and-half split, regardless of how long the
@@ -39,6 +39,12 @@ export const FONT_OPTIONS: FontOption[] = [
   { id: "condensed", label: "Condensed（窄體大寫）", cssVar: "var(--font-bebas-neue)", fallback: "sans-serif" },
   { id: "script", label: "Script（花體手寫）", cssVar: "var(--font-pacifico)", fallback: "cursive" },
   { id: "soft-serif", label: "Soft Serif（柔和襯線）", cssVar: "var(--font-fraunces)", fallback: "serif" },
+];
+
+export const COLLAGE_OPTIONS: CollageOption[] = [
+  { id: "single", label: "單張照片" },
+  { id: "duo-h", label: "左右拼貼" },
+  { id: "duo-v", label: "上下拼貼" },
 ];
 
 export const LAYOUT_OPTIONS: LayoutOption[] = [
@@ -127,7 +133,7 @@ export const STYLE_PRESETS: StylePreset[] = [
     letterSpacingPx: 0,
     duotoneEnabled: false,
     grainEnabled: true,
-    grainIntensity: 35,
+    grainIntensity: 16,
     cutoutCount: 5,
   },
   {
@@ -166,7 +172,7 @@ export const STYLE_PRESETS: StylePreset[] = [
     letterSpacingPx: 1,
     duotoneEnabled: true,
     grainEnabled: true,
-    grainIntensity: 40,
+    grainIntensity: 20,
     cutoutCount: 4,
   },
   {
@@ -185,7 +191,7 @@ export const STYLE_PRESETS: StylePreset[] = [
     letterSpacingPx: 0,
     duotoneEnabled: false,
     grainEnabled: true,
-    grainIntensity: 15,
+    grainIntensity: 8,
     cutoutCount: 3,
   },
   {
@@ -206,6 +212,49 @@ export const STYLE_PRESETS: StylePreset[] = [
     grainEnabled: false,
     grainIntensity: 30,
     cutoutCount: 4,
+  },
+  {
+    id: "subject-print",
+    label: "主體網版",
+    sublabel: "網點輪廓 · 大膽色塊 · 粗體大寫",
+    shapeId: "hexagon",
+    bracketId: "square",
+    fontOptionId: "condensed",
+    layout: "split-right",
+    topBgColor: "#ff5a1f",
+    textColor: "#151005",
+    scaleMultiplier: 1.1,
+    baseFontSizePx: 24,
+    lineHeightMultiplier: 1.2,
+    letterSpacingPx: 2,
+    duotoneEnabled: false,
+    grainEnabled: false,
+    grainIntensity: 30,
+    cutoutCount: 5,
+    // The only preset built around subject segmentation -- silkscreen/
+    // riso-print poster energy, where the detected subject prints as a dot
+    // matrix instead of the usual flat background.
+    subjectHalftoneEnabled: true,
+  },
+  {
+    id: "acid-blocks",
+    label: "迷幻色塊",
+    sublabel: "撞色雙色調 · 閃電貼紙 · 幾何字",
+    shapeId: "lightning",
+    bracketId: "none",
+    fontOptionId: "geometric",
+    layout: "overlay-h",
+    topBgColor: "#ff2f7e",
+    textColor: "#0d2b1f",
+    scaleMultiplier: 1.1,
+    baseFontSizePx: 20,
+    lineHeightMultiplier: 1.4,
+    letterSpacingPx: 0,
+    duotoneEnabled: true,
+    grainEnabled: false,
+    grainIntensity: 30,
+    cutoutCount: 5,
+    palette: ["#39ff9e", "#ffe94d", "#00d4ff", "#ff2f7e", "#b06bff"],
   },
 ];
 

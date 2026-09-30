@@ -5,27 +5,27 @@ import { BRACKET_OPTIONS, FONT_OPTIONS, SHAPE_OPTIONS, generateSocialCaption } f
 import { CanvasSizeStep } from "./CanvasSizeStep";
 import { ControlPanel } from "./ControlPanel";
 import { renderPosterToCanvas } from "./exportPoster";
+import { loadUploadedImage } from "./imageUpload";
 import { analyzePhotoMood } from "./photoMood";
 import { PosterPreview } from "./PosterPreview";
 import { segmentSubject, type SubjectMask } from "./subjectSegmentation";
-import type { BracketStyleId, CanvasPreset, Cutout, FontOptionId, PosterLayoutId, ShapeId, StylePreset } from "./types";
+import type { BracketStyleId, CanvasPreset, CollageLayoutId, Cutout, FontOptionId, PosterLayoutId, ShapeId, StylePreset } from "./types";
 import { randomizeCutouts, resetCutoutColors, resizeCutouts, setCutoutColor, wordCountOf } from "./useCutoutLayout";
 
 const DEFAULT_CUTOUT_COUNT = 6;
 const INITIAL_CAPTION = generateSocialCaption("neutral");
 
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
 export function PhotoPosterTool() {
   const [preset, setPreset] = useState<CanvasPreset | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  // Second photo + its own upload error, only meaningful once collageLayout
+  // is a "duo-*" arrangement -- kept as a sibling of imageUrl rather than
+  // generalizing to an array so the existing single-photo path (still the
+  // overwhelmingly common case) stays untouched.
+  const [imageUrl2, setImageUrl2] = useState<string | null>(null);
+  const [uploadError2, setUploadError2] = useState<string | null>(null);
+  const [collageLayoutId, setCollageLayoutId] = useState<CollageLayoutId>("single");
   const [caption, setCaption] = useState(INITIAL_CAPTION);
   const [cutouts, setCutouts] = useState<Cutout[]>(() =>
     randomizeCutouts(DEFAULT_CUTOUT_COUNT, wordCountOf(INITIAL_CAPTION)),
@@ -56,6 +56,7 @@ export function PhotoPosterTool() {
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef2 = useRef<HTMLInputElement>(null);
   // Tracks which photo the current subjectMask (if any) was computed for,
   // so switching photos or re-enabling the toggle only re-runs the
   // (comparatively slow, model-download-gated) segmentation when it
@@ -111,18 +112,45 @@ export function PhotoPosterTool() {
   const handleFileList = useCallback(
     async (files: FileList | null) => {
       const file = files?.[0];
-      if (file && file.type.startsWith("image/")) {
-        handleImageChange(await readFileAsDataUrl(file));
+      if (!file) return;
+      const result = await loadUploadedImage(file);
+      if ("error" in result) {
+        setUploadError(result.error);
+        return;
       }
+      setUploadError(null);
+      handleImageChange(result.url);
     },
     [handleImageChange],
   );
+
+  const handleRequestUpload2 = useCallback(() => fileInputRef2.current?.click(), []);
+
+  const handleFileList2 = useCallback(async (files: FileList | null) => {
+    const file = files?.[0];
+    if (!file) return;
+    const result = await loadUploadedImage(file);
+    if ("error" in result) {
+      setUploadError2(result.error);
+      return;
+    }
+    setUploadError2(null);
+    setImageUrl2(result.url);
+  }, []);
 
   useEffect(() => {
     function onPaste(e: ClipboardEvent) {
       const item = Array.from(e.clipboardData?.items ?? []).find((i) => i.type.startsWith("image/"));
       const file = item?.getAsFile();
-      if (file) readFileAsDataUrl(file).then(handleImageChange);
+      if (!file) return;
+      loadUploadedImage(file).then((result) => {
+        if ("error" in result) {
+          setUploadError(result.error);
+          return;
+        }
+        setUploadError(null);
+        handleImageChange(result.url);
+      });
     }
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
@@ -193,6 +221,7 @@ export function PhotoPosterTool() {
       setDuotoneEnabled(preset.duotoneEnabled);
       setGrainEnabled(preset.grainEnabled);
       setGrainIntensity(preset.grainIntensity);
+      setSubjectHalftoneEnabled(preset.subjectHalftoneEnabled ?? false);
       const fresh = randomizeCutouts(preset.cutoutCount, wordCountOf(caption));
       setCutouts(fresh.map((c, i) => ({ ...c, color: preset.palette ? preset.palette[i % preset.palette.length] : null })));
     },
@@ -230,6 +259,8 @@ export function PhotoPosterTool() {
         width: preset.width,
         height: preset.height,
         imageUrl,
+        imageUrl2,
+        collageLayoutId,
         caption,
         cutouts,
         shape,
@@ -266,6 +297,8 @@ export function PhotoPosterTool() {
   }, [
     preset,
     imageUrl,
+    imageUrl2,
+    collageLayoutId,
     caption,
     cutouts,
     shapeId,
@@ -320,9 +353,16 @@ export function PhotoPosterTool() {
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,.heic,.heif"
         className="hidden"
         onChange={(e) => void handleFileList(e.target.files)}
+      />
+      <input
+        ref={fileInputRef2}
+        type="file"
+        accept="image/*,.heic,.heif"
+        className="hidden"
+        onChange={(e) => void handleFileList2(e.target.files)}
       />
 
       <div ref={previewWrapCallbackRef} className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-3">
@@ -333,6 +373,12 @@ export function PhotoPosterTool() {
           <PosterPreview
             canvasRef={canvasRef}
             imageUrl={imageUrl}
+            uploadError={uploadError}
+            imageUrl2={imageUrl2}
+            uploadError2={uploadError2}
+            collageLayoutId={collageLayoutId}
+            onRequestUpload2={handleRequestUpload2}
+            onFilesDropped2={handleFileList2}
             caption={caption}
             cutouts={cutouts}
             onCutoutsChange={setCutouts}
@@ -367,7 +413,11 @@ export function PhotoPosterTool() {
           onChangeSize={() => setPreset(null)}
           onApplyStylePreset={handleApplyStylePreset}
           imageUrl={imageUrl}
+          uploadError={uploadError}
           onRequestUpload={handleRequestUpload}
+          imageUrl2={imageUrl2}
+          uploadError2={uploadError2}
+          onRequestUpload2={handleRequestUpload2}
           zoom={zoom}
           onZoomChange={setZoom}
           duotoneEnabled={duotoneEnabled}
@@ -407,6 +457,8 @@ export function PhotoPosterTool() {
           onTextColorChange={setTextColor}
           layout={layout}
           onLayoutChange={setLayout}
+          collageLayoutId={collageLayoutId}
+          onCollageLayoutChange={setCollageLayoutId}
           subjectHalftoneEnabled={subjectHalftoneEnabled}
           onSubjectHalftoneEnabledChange={setSubjectHalftoneEnabled}
           subjectHalftoneStatus={subjectHalftoneStatus}

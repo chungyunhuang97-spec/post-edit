@@ -94,6 +94,16 @@ export interface LayoutOption {
   label: string;
 }
 
+/** How many photos fill the photo zone, and which way they split it --
+ * orthogonal to PosterLayoutId, which only controls where the *caption*
+ * sits relative to the (single- or multi-photo) photo zone as a whole. */
+export type CollageLayoutId = "single" | "duo-h" | "duo-v";
+
+export interface CollageOption {
+  id: CollageLayoutId;
+  label: string;
+}
+
 /** A complete, one-click look: every knob that otherwise has to be tuned
  * tab-by-tab (shape, bracket, font, layout, colors, type scale, duotone/
  * grain, cutout count) bundled into a single named combination, so the
@@ -105,7 +115,9 @@ export type StylePresetId =
   | "sticker-dump"
   | "cinematic-flash"
   | "analog-diary"
-  | "editorial-cutout";
+  | "editorial-cutout"
+  | "subject-print"
+  | "acid-blocks";
 
 export interface StylePreset {
   id: StylePresetId;
@@ -125,6 +137,11 @@ export interface StylePreset {
   grainEnabled: boolean;
   grainIntensity: number;
   cutoutCount: number;
+  /** Renders the detected subject as a halftone silhouette behind the
+   * caption instead of a plain background (see subjectSegmentation.ts).
+   * Defaults to false when omitted -- most presets don't touch it, since it
+   * triggers a one-time ML model download the first time it's turned on. */
+  subjectHalftoneEnabled?: boolean;
   /** Cycling per-cutout color override (candy-sticker look). Omitted means
    * every cutout inherits topBgColor, as plain shapes cut from one sheet. */
   palette?: string[];
