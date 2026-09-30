@@ -219,6 +219,14 @@ export function PhotoPosterTool() {
       setCollageLayoutId(id);
       if (id !== "single") {
         setLayout((prev) => (prev === "overlay-h" || prev === "overlay-v" ? prev : "overlay-h"));
+        // The default scale was tuned for a sticker sitting inline within a
+        // line of caption text -- against two full-bleed photos with no
+        // caption at all, that same size reads as a stray, broken-looking
+        // speck rather than a deliberate sticker. Bump it up (once, only
+        // while still at/under that original default) so a fresh collage
+        // starts out legible; a user who already sized it up keeps their
+        // choice.
+        setScaleMultiplier((prev) => (prev <= 0.5 ? 1.4 : prev));
       }
     },
     [],

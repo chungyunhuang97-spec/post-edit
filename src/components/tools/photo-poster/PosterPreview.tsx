@@ -11,6 +11,12 @@ import { buildCaptionTokens, clampPct } from "./useCutoutLayout";
 
 const DUOTONE_PREVIEW_MAX_DIMENSION = 900;
 const CENTER_PAN = { x: 0.5, y: 0.5 };
+// Die-cut sticker border width, as a fraction of the cutout's own size --
+// scaling with the sticker (not a fixed px) keeps the border reading as the
+// same *proportion* of edge whether the sticker is tiny or huge. Shared
+// with exportPoster.ts's identical constant so the live preview and the
+// exported PNG agree.
+const STICKER_BORDER_FRACTION = 0.1;
 
 interface CoverGeometry {
   boxW: number;
@@ -554,23 +560,44 @@ export function PosterPreview({
       )}
       {imageUrl &&
         cutouts.map((cutout) => (
+          // A die-cut sticker, not a flat paint swatch: a white "cut line"
+          // (an identically-clipped layer a few px larger, so it reads as a
+          // uniform-width edge for any of the shape set) plus a drop-shadow
+          // that -- unlike box-shadow -- follows the clip-path's actual
+          // silhouette instead of the square bounding box, giving it a
+          // printed/peeled-sticker lift off the photo. This is what makes a
+          // cutout read as a deliberate sticker at a glance rather than a
+          // stray colored speck, which matters even more once the photo
+          // zone is a full-bleed collage with nothing else to anchor it to.
           <div
             key={cutout.id}
             data-cutout-id={cutout.id}
             onPointerDown={(e) => handlePointerDown(e, cutout)}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
-            className="absolute shadow-[0_0_0_1px_rgba(255,255,255,0.5),0_2px_10px_rgba(0,0,0,0.45)]"
+            className="absolute"
             style={{
               left: `${cutout.xPct}%`,
               top: `${cutout.yPct}%`,
               width: squareSizePx,
               height: squareSizePx,
-              backgroundColor: cutout.color ?? topBgColor,
-              clipPath: shape.clipPath,
               cursor: locked ? "default" : "grab",
             }}
-          />
+          >
+            <div
+              className="absolute"
+              style={{
+                inset: -STICKER_BORDER_FRACTION * squareSizePx,
+                backgroundColor: "#ffffff",
+                clipPath: shape.clipPath,
+                filter: "drop-shadow(0 3px 5px rgba(0,0,0,0.4))",
+              }}
+            />
+            <div
+              className="absolute inset-0"
+              style={{ backgroundColor: cutout.color ?? topBgColor, clipPath: shape.clipPath }}
+            />
+          </div>
         ))}
       {/* Overlay layouts nest the text band *inside* the photo zone (as its
           absolutely positioned child) rather than as a canvasEl-level

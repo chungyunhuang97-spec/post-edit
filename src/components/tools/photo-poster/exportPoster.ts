@@ -16,6 +16,9 @@ const DUOTONE_EXPORT_MAX_DIMENSION = 3000;
 // Matches PosterPreview.tsx: in a duo collage neither photo gets a
 // drag-to-pan handle, so both simply center within their own half.
 const CENTER_PAN = { x: 0.5, y: 0.5 };
+// Matches PosterPreview.tsx's identical constant -- the die-cut sticker
+// border's width, as a fraction of the cutout's own size.
+const STICKER_BORDER_FRACTION = 0.1;
 
 interface CoverGeometry {
   renderedW: number;
@@ -408,16 +411,28 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
       ctx.restore();
     }
 
-    ctx.shadowColor = "rgba(0,0,0,0.25)";
-    ctx.shadowBlur = 4 * scale;
-    ctx.shadowOffsetY = 1 * scale;
+    // A die-cut sticker, not a flat paint swatch (mirrors PosterPreview.tsx):
+    // a white "cut line" path a bit larger than the sticker itself, shadowed,
+    // then the actual colored shape painted on top without a shadow of its
+    // own -- giving it a printed/peeled-off-the-sheet lift rather than
+    // reading as a stray colored speck sitting directly on the photo.
+    const stickerBorderPx = STICKER_BORDER_FRACTION * squarePx;
+    ctx.shadowColor = "rgba(0,0,0,0.4)";
+    ctx.shadowBlur = 5 * scale;
+    ctx.shadowOffsetY = 3 * scale;
+    ctx.fillStyle = "#ffffff";
+    cutouts.forEach((cutout) => {
+      const x = photoZone.x + (cutout.xPct / 100) * photoZone.w;
+      const y = photoZone.y + (cutout.yPct / 100) * photoZone.h;
+      ctx.fill(canvasShapePath(shape.id, x - stickerBorderPx, y - stickerBorderPx, squarePx + 2 * stickerBorderPx));
+    });
+    ctx.shadowColor = "transparent";
     cutouts.forEach((cutout) => {
       const x = photoZone.x + (cutout.xPct / 100) * photoZone.w;
       const y = photoZone.y + (cutout.yPct / 100) * photoZone.h;
       ctx.fillStyle = cutout.color ?? topBgColor;
       ctx.fill(canvasShapePath(shape.id, x, y, squarePx));
     });
-    ctx.shadowColor = "transparent";
   }
 
   // The overlay layouts have no separate background fill under the text
