@@ -104,6 +104,16 @@ export interface CollageOption {
   label: string;
 }
 
+/** How each cutout sticker is rendered onto the photo -- orthogonal to
+ * ShapeId (the silhouette) and color (the fill). */
+export type StickerStyleId = "die-cut" | "halftone" | "polaroid";
+
+export interface StickerStyleOption {
+  id: StickerStyleId;
+  label: string;
+  sublabel: string;
+}
+
 /** A complete, one-click look: every knob that otherwise has to be tuned
  * tab-by-tab (shape, bracket, font, layout, colors, type scale, duotone/
  * grain, cutout count) bundled into a single named combination, so the

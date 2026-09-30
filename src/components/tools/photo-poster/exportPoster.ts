@@ -3,7 +3,7 @@ import { applyDuotone } from "./duotone";
 import { drawFilmGrain } from "./grain";
 import { drawSubjectHalftone } from "./subjectHalftone";
 import type { SubjectMask } from "./subjectSegmentation";
-import type { BracketOption, CollageLayoutId, Cutout, PosterLayoutId, ShapeOption } from "./types";
+import type { BracketOption, CollageLayoutId, Cutout, PosterLayoutId, ShapeOption, StickerStyleId } from "./types";
 import { buildCaptionTokens } from "./useCutoutLayout";
 import { canvasShapePath } from "./shapes";
 
@@ -19,6 +19,43 @@ const CENTER_PAN = { x: 0.5, y: 0.5 };
 // Matches PosterPreview.tsx's identical constant -- the die-cut sticker
 // border's width, as a fraction of the cutout's own size.
 const STICKER_BORDER_FRACTION = 0.1;
+// Matches PosterPreview.tsx's identical constants -- the polaroid sticker
+// frame's side/bottom margins, as fractions of the cutout's own size.
+const POLAROID_SIDE_FRACTION = 0.09;
+const POLAROID_BOTTOM_FRACTION = 0.32;
+
+// Matches PosterPreview.tsx's identical function -- a small, stable
+// per-cutout tilt for the polaroid sticker style, derived from the
+// cutout's own id so the live preview and the exported PNG agree.
+function cutoutRotationDeg(id: string): number {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
+  const t = (Math.abs(hash) % 100) / 100;
+  return -8 + t * 16;
+}
+
+/** Draws a tileable dot pattern clipped to `path` -- the canvas-export
+ * equivalent of PosterPreview.tsx's CSS radial-gradient halftoneFillStyle,
+ * built by hand since canvas has no repeating-gradient-within-a-clip
+ * primitive. White backing first (the "paper"), then a grid of filled
+ * circles in `color` (the "ink"), both confined to `path` by one clip(). */
+function fillHalftoneDots(ctx: CanvasRenderingContext2D, path: Path2D, x: number, y: number, size: number, color: string) {
+  ctx.save();
+  ctx.clip(path);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(x, y, size, size);
+  const dotSize = Math.max(3, size * 0.16);
+  const dotRadius = dotSize * 0.32;
+  ctx.fillStyle = color;
+  for (let dy = dotSize / 2; dy < size; dy += dotSize) {
+    for (let dx = dotSize / 2; dx < size; dx += dotSize) {
+      ctx.beginPath();
+      ctx.arc(x + dx, y + dy, dotRadius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
 
 interface CoverGeometry {
   renderedW: number;
@@ -175,6 +212,7 @@ export interface RenderPosterParams {
   caption: string;
   cutouts: Cutout[];
   shape: ShapeOption;
+  stickerStyleId: StickerStyleId;
   bracket: BracketOption;
   topBgColor: string;
   textColor: string;
@@ -232,6 +270,7 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
     caption,
     cutouts,
     shape,
+    stickerStyleId,
     bracket,
     topBgColor,
     textColor,
@@ -411,28 +450,61 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
       ctx.restore();
     }
 
-    // A die-cut sticker, not a flat paint swatch (mirrors PosterPreview.tsx):
-    // a white "cut line" path a bit larger than the sticker itself, shadowed,
-    // then the actual colored shape painted on top without a shadow of its
-    // own -- giving it a printed/peeled-off-the-sheet lift rather than
-    // reading as a stray colored speck sitting directly on the photo.
-    const stickerBorderPx = STICKER_BORDER_FRACTION * squarePx;
-    ctx.shadowColor = "rgba(0,0,0,0.4)";
-    ctx.shadowBlur = 5 * scale;
-    ctx.shadowOffsetY = 3 * scale;
-    ctx.fillStyle = "#ffffff";
-    cutouts.forEach((cutout) => {
-      const x = photoZone.x + (cutout.xPct / 100) * photoZone.w;
-      const y = photoZone.y + (cutout.yPct / 100) * photoZone.h;
-      ctx.fill(canvasShapePath(shape.id, x - stickerBorderPx, y - stickerBorderPx, squarePx + 2 * stickerBorderPx));
-    });
-    ctx.shadowColor = "transparent";
-    cutouts.forEach((cutout) => {
-      const x = photoZone.x + (cutout.xPct / 100) * photoZone.w;
-      const y = photoZone.y + (cutout.yPct / 100) * photoZone.h;
-      ctx.fillStyle = cutout.color ?? topBgColor;
-      ctx.fill(canvasShapePath(shape.id, x, y, squarePx));
-    });
+    // Mirrors PosterPreview.tsx's renderSticker: a plain paint swatch would
+    // read as a stray colored speck sitting directly on the photo, so every
+    // sticker style gives it some kind of printed/peeled-off-the-sheet lift.
+    if (stickerStyleId === "polaroid") {
+      const sideMargin = POLAROID_SIDE_FRACTION * squarePx;
+      const bottomMargin = POLAROID_BOTTOM_FRACTION * squarePx;
+      cutouts.forEach((cutout) => {
+        const x = photoZone.x + (cutout.xPct / 100) * photoZone.w;
+        const y = photoZone.y + (cutout.yPct / 100) * photoZone.h;
+        const frameX = x - sideMargin;
+        const frameY = y - sideMargin;
+        const frameW = squarePx + 2 * sideMargin;
+        const frameH = squarePx + sideMargin + bottomMargin;
+        const cx = frameX + frameW / 2;
+        const cy = frameY + frameH / 2;
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate((cutoutRotationDeg(cutout.id) * Math.PI) / 180);
+        ctx.translate(-cx, -cy);
+        ctx.shadowColor = "rgba(0,0,0,0.4)";
+        ctx.shadowBlur = 6 * scale;
+        ctx.shadowOffsetY = 4 * scale;
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(frameX, frameY, frameW, frameH);
+        ctx.shadowColor = "transparent";
+        ctx.fillStyle = cutout.color ?? topBgColor;
+        ctx.fill(canvasShapePath(shape.id, x, y, squarePx));
+        ctx.restore();
+      });
+    } else {
+      // die-cut and halftone share the same white cut-line silhouette (a
+      // bit larger than the shape itself, shadowed); only the inner fill
+      // differs -- flat color vs. a dot pattern.
+      const stickerBorderPx = STICKER_BORDER_FRACTION * squarePx;
+      ctx.shadowColor = "rgba(0,0,0,0.4)";
+      ctx.shadowBlur = 5 * scale;
+      ctx.shadowOffsetY = 3 * scale;
+      ctx.fillStyle = "#ffffff";
+      cutouts.forEach((cutout) => {
+        const x = photoZone.x + (cutout.xPct / 100) * photoZone.w;
+        const y = photoZone.y + (cutout.yPct / 100) * photoZone.h;
+        ctx.fill(canvasShapePath(shape.id, x - stickerBorderPx, y - stickerBorderPx, squarePx + 2 * stickerBorderPx));
+      });
+      ctx.shadowColor = "transparent";
+      cutouts.forEach((cutout) => {
+        const x = photoZone.x + (cutout.xPct / 100) * photoZone.w;
+        const y = photoZone.y + (cutout.yPct / 100) * photoZone.h;
+        if (stickerStyleId === "halftone") {
+          fillHalftoneDots(ctx, canvasShapePath(shape.id, x, y, squarePx), x, y, squarePx, cutout.color ?? topBgColor);
+        } else {
+          ctx.fillStyle = cutout.color ?? topBgColor;
+          ctx.fill(canvasShapePath(shape.id, x, y, squarePx));
+        }
+      });
+    }
   }
 
   // The overlay layouts have no separate background fill under the text

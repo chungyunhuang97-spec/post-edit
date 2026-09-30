@@ -1,8 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { BRACKET_OPTIONS, COLLAGE_OPTIONS, FONT_OPTIONS, LAYOUT_OPTIONS, SHAPE_OPTIONS, STYLE_PRESETS } from "./constants";
-import type { BracketStyleId, CanvasPreset, CollageLayoutId, Cutout, FontOptionId, PosterLayoutId, ShapeId, StylePreset } from "./types";
+import { BRACKET_OPTIONS, COLLAGE_OPTIONS, FONT_OPTIONS, LAYOUT_OPTIONS, SHAPE_OPTIONS, STICKER_STYLE_OPTIONS, STYLE_PRESETS } from "./constants";
+import type {
+  BracketStyleId,
+  CanvasPreset,
+  CollageLayoutId,
+  Cutout,
+  FontOptionId,
+  PosterLayoutId,
+  ShapeId,
+  StickerStyleId,
+  StylePreset,
+} from "./types";
 
 type TabId = "layout" | "style" | "photo" | "caption" | "shapes" | "text";
 // 版型 leads -- it's where how-many-photos (拼貼方式) lives, and that's the
@@ -91,6 +101,8 @@ export interface ControlPanelProps {
   onResetCutoutColors: () => void;
   shapeId: ShapeId;
   onShapeChange: (id: ShapeId) => void;
+  stickerStyleId: StickerStyleId;
+  onStickerStyleChange: (id: StickerStyleId) => void;
   scaleMultiplier: number;
   onScaleChange: (n: number) => void;
   locked: boolean;
@@ -155,6 +167,8 @@ export function ControlPanel(props: ControlPanelProps) {
     onResetCutoutColors,
     shapeId,
     onShapeChange,
+    stickerStyleId,
+    onStickerStyleChange,
     scaleMultiplier,
     onScaleChange,
     locked,
@@ -395,6 +409,24 @@ export function ControlPanel(props: ControlPanelProps) {
                 ))}
               </select>
             </label>
+            <div className="flex flex-col gap-2">
+              <span className="text-xs text-ink-muted">貼紙風格</span>
+              <div className="grid grid-cols-3 gap-2">
+                {STICKER_STYLE_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => onStickerStyleChange(opt.id)}
+                    className={`flex flex-col gap-0.5 rounded-md border px-2 py-1.5 text-left transition ${
+                      stickerStyleId === opt.id ? "border-accent bg-accent-soft text-accent" : "border-line bg-surface-2 text-ink-muted"
+                    }`}
+                  >
+                    <span className="text-xs font-medium">{opt.label}</span>
+                    <span className="text-[10px] text-ink-faint">{opt.sublabel}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
             <label className="flex flex-col gap-1">
               <span className="flex justify-between text-xs text-ink-muted">
                 <span>小圖統一縮放倍數</span>

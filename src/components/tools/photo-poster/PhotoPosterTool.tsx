@@ -9,7 +9,17 @@ import { loadUploadedImage } from "./imageUpload";
 import { analyzePhotoMood } from "./photoMood";
 import { PosterPreview } from "./PosterPreview";
 import { segmentSubject, type SubjectMask } from "./subjectSegmentation";
-import type { BracketStyleId, CanvasPreset, CollageLayoutId, Cutout, FontOptionId, PosterLayoutId, ShapeId, StylePreset } from "./types";
+import type {
+  BracketStyleId,
+  CanvasPreset,
+  CollageLayoutId,
+  Cutout,
+  FontOptionId,
+  PosterLayoutId,
+  ShapeId,
+  StickerStyleId,
+  StylePreset,
+} from "./types";
 import { randomizeCutouts, resetCutoutColors, resizeCutouts, setCutoutColor, wordCountOf } from "./useCutoutLayout";
 
 const DEFAULT_CUTOUT_COUNT = 6;
@@ -37,6 +47,7 @@ export function PhotoPosterTool() {
   );
   const [locked, setLocked] = useState(false);
   const [shapeId, setShapeId] = useState<ShapeId>("square");
+  const [stickerStyleId, setStickerStyleId] = useState<StickerStyleId>("die-cut");
   const [scaleMultiplier, setScaleMultiplier] = useState(0.5);
   const [baseFontSizePx, setBaseFontSizePx] = useState(16);
   const [lineHeightMultiplier, setLineHeightMultiplier] = useState(1.5);
@@ -295,6 +306,7 @@ export function PhotoPosterTool() {
         caption,
         cutouts,
         shape,
+        stickerStyleId,
         bracket,
         topBgColor,
         textColor,
@@ -334,6 +346,7 @@ export function PhotoPosterTool() {
     caption,
     cutouts,
     shapeId,
+    stickerStyleId,
     bracketId,
     fontOptionId,
     topBgColor,
@@ -423,6 +436,7 @@ export function PhotoPosterTool() {
             fontOption={fontOption}
             bracket={bracket}
             shape={shape}
+            stickerStyleId={stickerStyleId}
             topBgColor={topBgColor}
             textColor={textColor}
             pan={pan}
@@ -469,6 +483,8 @@ export function PhotoPosterTool() {
           onResetCutoutColors={handleResetCutoutColors}
           shapeId={shapeId}
           onShapeChange={setShapeId}
+          stickerStyleId={stickerStyleId}
+          onStickerStyleChange={setStickerStyleId}
           scaleMultiplier={scaleMultiplier}
           onScaleChange={setScaleMultiplier}
           baseFontSizePx={baseFontSizePx}

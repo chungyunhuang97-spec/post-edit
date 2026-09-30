@@ -6,7 +6,7 @@ import { applyDuotone } from "./duotone";
 import { drawFilmGrain } from "./grain";
 import { drawSubjectHalftone } from "./subjectHalftone";
 import type { SubjectMask } from "./subjectSegmentation";
-import type { BracketOption, CollageLayoutId, Cutout, FontOption, PosterLayoutId, ShapeOption } from "./types";
+import type { BracketOption, CollageLayoutId, Cutout, FontOption, PosterLayoutId, ShapeOption, StickerStyleId } from "./types";
 import { buildCaptionTokens, clampPct } from "./useCutoutLayout";
 
 const DUOTONE_PREVIEW_MAX_DIMENSION = 900;
@@ -17,6 +17,24 @@ const CENTER_PAN = { x: 0.5, y: 0.5 };
 // with exportPoster.ts's identical constant so the live preview and the
 // exported PNG agree.
 const STICKER_BORDER_FRACTION = 0.1;
+// Polaroid frame margins, as fractions of the sticker's own size -- thin on
+// three sides, noticeably thicker on the bottom, the one visual cue that
+// reads as "polaroid" instead of just "photo with a white border". Shared
+// with exportPoster.ts's identical constants.
+const POLAROID_SIDE_FRACTION = 0.09;
+const POLAROID_BOTTOM_FRACTION = 0.32;
+
+/** A small, stable-per-cutout tilt for the polaroid sticker style -- derived
+ * from the cutout's own id (not Math.random()) so it doesn't reshuffle on
+ * every unrelated re-render, and shared with exportPoster.ts's identical
+ * function so the live preview and the exported PNG agree on which way each
+ * one leans. */
+function cutoutRotationDeg(id: string): number {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
+  const t = (Math.abs(hash) % 100) / 100;
+  return -8 + t * 16;
+}
 
 interface CoverGeometry {
   boxW: number;
@@ -142,6 +160,7 @@ export interface PosterPreviewProps {
   fontOption: FontOption;
   bracket: BracketOption;
   shape: ShapeOption;
+  stickerStyleId: StickerStyleId;
   topBgColor: string;
   textColor: string;
   pan: { x: number; y: number };
@@ -178,6 +197,7 @@ export function PosterPreview({
   fontOption,
   bracket,
   shape,
+  stickerStyleId,
   topBgColor,
   textColor,
   pan,
@@ -431,6 +451,81 @@ export function PosterPreview({
     };
   }
 
+  /** A tileable dot pattern (CSS radial-gradient repeated at a fixed size)
+   * standing in for a proper luminance-driven halftone -- a stylized riso/
+   * screen-print dot fill rather than the (photo-sampling) technique
+   * subjectHalftone.ts already uses elsewhere for a different purpose. */
+  function halftoneFillStyle(color: string): React.CSSProperties {
+    const dotSize = Math.max(3, squareSizePx * 0.16);
+    const dotRadius = dotSize * 0.32;
+    return {
+      backgroundColor: "#ffffff",
+      backgroundImage: `radial-gradient(circle, ${color} ${dotRadius}px, transparent ${dotRadius}px)`,
+      backgroundSize: `${dotSize}px ${dotSize}px`,
+    };
+  }
+
+  function renderSticker(cutout: Cutout) {
+    const fillColor = cutout.color ?? topBgColor;
+    const commonProps = {
+      "data-cutout-id": cutout.id,
+      onPointerDown: (e: ReactPointerEvent<HTMLDivElement>) => handlePointerDown(e, cutout),
+      onPointerMove: handlePointerMove,
+      onPointerUp: handlePointerUp,
+    };
+    const outerStyle: React.CSSProperties = {
+      left: `${cutout.xPct}%`,
+      top: `${cutout.yPct}%`,
+      width: squareSizePx,
+      height: squareSizePx,
+      cursor: locked ? "default" : "grab",
+    };
+
+    if (stickerStyleId === "polaroid") {
+      const sideMargin = POLAROID_SIDE_FRACTION * squareSizePx;
+      const bottomMargin = POLAROID_BOTTOM_FRACTION * squareSizePx;
+      return (
+        <div key={cutout.id} {...commonProps} className="absolute" style={outerStyle}>
+          <div
+            className="absolute"
+            style={{
+              left: -sideMargin,
+              top: -sideMargin,
+              right: -sideMargin,
+              bottom: -bottomMargin,
+              backgroundColor: "#ffffff",
+              boxShadow: "0 4px 8px rgba(0,0,0,0.4)",
+              transform: `rotate(${cutoutRotationDeg(cutout.id)}deg)`,
+            }}
+          >
+            <div className="absolute left-0 top-0" style={{ width: squareSizePx, height: squareSizePx, backgroundColor: fillColor, clipPath: shape.clipPath }} />
+          </div>
+        </div>
+      );
+    }
+
+    // die-cut and halftone share the same "white cut-line silhouette a bit
+    // larger than the shape, shadowed" structure -- they only differ in
+    // what fills the inner layer (flat color vs. dot pattern).
+    return (
+      <div key={cutout.id} {...commonProps} className="absolute" style={outerStyle}>
+        <div
+          className="absolute"
+          style={{
+            inset: -STICKER_BORDER_FRACTION * squareSizePx,
+            backgroundColor: "#ffffff",
+            clipPath: shape.clipPath,
+            filter: "drop-shadow(0 3px 5px rgba(0,0,0,0.4))",
+          }}
+        />
+        <div
+          className="absolute inset-0"
+          style={stickerStyleId === "halftone" ? { ...halftoneFillStyle(fillColor), clipPath: shape.clipPath } : { backgroundColor: fillColor, clipPath: shape.clipPath }}
+        />
+      </div>
+    );
+  }
+
   // The caption zone and photo zone can sit top/bottom (either order),
   // left/right (either order), or -- for the two "overlay" layouts -- the
   // photo fills the whole canvas with the caption as an absolutely
@@ -558,47 +653,7 @@ export function PosterPreview({
       ) : (
         photoPane(imageUrl, displayImageUrl, geometry, true, onRequestUpload, onFilesDropped, uploadError, true)
       )}
-      {imageUrl &&
-        cutouts.map((cutout) => (
-          // A die-cut sticker, not a flat paint swatch: a white "cut line"
-          // (an identically-clipped layer a few px larger, so it reads as a
-          // uniform-width edge for any of the shape set) plus a drop-shadow
-          // that -- unlike box-shadow -- follows the clip-path's actual
-          // silhouette instead of the square bounding box, giving it a
-          // printed/peeled-sticker lift off the photo. This is what makes a
-          // cutout read as a deliberate sticker at a glance rather than a
-          // stray colored speck, which matters even more once the photo
-          // zone is a full-bleed collage with nothing else to anchor it to.
-          <div
-            key={cutout.id}
-            data-cutout-id={cutout.id}
-            onPointerDown={(e) => handlePointerDown(e, cutout)}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            className="absolute"
-            style={{
-              left: `${cutout.xPct}%`,
-              top: `${cutout.yPct}%`,
-              width: squareSizePx,
-              height: squareSizePx,
-              cursor: locked ? "default" : "grab",
-            }}
-          >
-            <div
-              className="absolute"
-              style={{
-                inset: -STICKER_BORDER_FRACTION * squareSizePx,
-                backgroundColor: "#ffffff",
-                clipPath: shape.clipPath,
-                filter: "drop-shadow(0 3px 5px rgba(0,0,0,0.4))",
-              }}
-            />
-            <div
-              className="absolute inset-0"
-              style={{ backgroundColor: cutout.color ?? topBgColor, clipPath: shape.clipPath }}
-            />
-          </div>
-        ))}
+      {imageUrl && cutouts.map((cutout) => renderSticker(cutout))}
       {/* Overlay layouts nest the text band *inside* the photo zone (as its
           absolutely positioned child) rather than as a canvasEl-level
           sibling -- keeping the photo zone the sole normal in-flow child of

@@ -1,6 +1,16 @@
 import type { PhotoMood } from "./photoMood";
 import { clipPathFor } from "./shapes";
-import type { BracketOption, CanvasPreset, CollageOption, FontOption, LayoutOption, ShapeId, ShapeOption, StylePreset } from "./types";
+import type {
+  BracketOption,
+  CanvasPreset,
+  CollageOption,
+  FontOption,
+  LayoutOption,
+  ShapeId,
+  ShapeOption,
+  StickerStyleOption,
+  StylePreset,
+} from "./types";
 
 // The caption/thumbnail zone is always exactly this fraction of the canvas
 // height -- a fixed half-and-half split, regardless of how long the
@@ -45,6 +55,12 @@ export const COLLAGE_OPTIONS: CollageOption[] = [
   { id: "single", label: "單張照片" },
   { id: "duo-h", label: "左右拼貼" },
   { id: "duo-v", label: "上下拼貼" },
+];
+
+export const STICKER_STYLE_OPTIONS: StickerStyleOption[] = [
+  { id: "die-cut", label: "切割貼紙", sublabel: "白色切邊 + 陰影" },
+  { id: "halftone", label: "網點填色", sublabel: "riso 印刷網點質感" },
+  { id: "polaroid", label: "拍立得", sublabel: "白框、微傾斜" },
 ];
 
 export const LAYOUT_OPTIONS: LayoutOption[] = [
