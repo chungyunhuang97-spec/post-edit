@@ -1,17 +1,37 @@
 "use client";
 
 import { useState } from "react";
-import { BRACKET_OPTIONS, FONT_OPTIONS, LAYOUT_OPTIONS, SHAPE_OPTIONS } from "./constants";
-import type { BracketStyleId, CanvasPreset, Cutout, FontOptionId, PosterLayoutId, ShapeId } from "./types";
+import { BRACKET_OPTIONS, FONT_OPTIONS, LAYOUT_OPTIONS, SHAPE_OPTIONS, STYLE_PRESETS } from "./constants";
+import type { BracketStyleId, CanvasPreset, Cutout, FontOptionId, PosterLayoutId, ShapeId, StylePreset } from "./types";
 
-type TabId = "photo" | "caption" | "shapes" | "layout" | "text";
+type TabId = "style" | "photo" | "caption" | "shapes" | "layout" | "text";
 const TABS: { id: TabId; label: string }[] = [
+  { id: "style", label: "風格" },
   { id: "photo", label: "照片" },
   { id: "caption", label: "文案" },
   { id: "shapes", label: "圖形" },
   { id: "layout", label: "版型" },
   { id: "text", label: "文字" },
 ];
+
+/** A tiny two-tone swatch previewing what a style preset will actually
+ * change -- the caption-band color as the ground, the photo/sticker color
+ * as a shape chip clipped to the preset's own cutout shape -- so the list
+ * reads as a gallery of looks rather than a wall of Chinese labels. */
+function StylePresetSwatch({ preset }: { preset: StylePreset }) {
+  const shape = SHAPE_OPTIONS.find((s) => s.id === preset.shapeId);
+  return (
+    <span className="flex h-10 w-12 shrink-0 overflow-hidden rounded-md border border-line">
+      <span
+        className="flex flex-1 items-center justify-center"
+        style={{ backgroundColor: preset.topBgColor }}
+      >
+        <span className="h-4 w-4" style={{ backgroundColor: preset.textColor, clipPath: shape?.clipPath }} />
+      </span>
+      <span className="w-3" style={{ backgroundColor: preset.textColor }} />
+    </span>
+  );
+}
 
 const fieldClass = "rounded-md border border-line bg-surface-2 px-2 py-1.5 text-ink";
 
@@ -40,6 +60,7 @@ function LayoutIcon({ id }: { id: PosterLayoutId }) {
 export interface ControlPanelProps {
   preset: CanvasPreset;
   onChangeSize: () => void;
+  onApplyStylePreset: (preset: StylePreset) => void;
 
   imageUrl: string | null;
   onRequestUpload: () => void;
@@ -99,6 +120,7 @@ export function ControlPanel(props: ControlPanelProps) {
   const {
     preset,
     onChangeSize,
+    onApplyStylePreset,
     imageUrl,
     onRequestUpload,
     zoom,
@@ -147,7 +169,7 @@ export function ControlPanel(props: ControlPanelProps) {
     exporting,
   } = props;
 
-  const [activeTab, setActiveTab] = useState<TabId>("photo");
+  const [activeTab, setActiveTab] = useState<TabId>("style");
 
   return (
     <div className="flex h-full min-h-0 flex-col text-sm">
@@ -179,6 +201,30 @@ export function ControlPanel(props: ControlPanelProps) {
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        {activeTab === "style" && (
+          <div className="flex flex-col gap-3">
+            <p className="text-xs text-ink-faint">
+              一鍵套用一整組風格（字體、圖形、配色、顆粒／雙色調都會一起換），套用後仍可到其他分頁微調。
+            </p>
+            <div className="flex flex-col gap-2">
+              {STYLE_PRESETS.map((sp) => (
+                <button
+                  key={sp.id}
+                  type="button"
+                  onClick={() => onApplyStylePreset(sp)}
+                  className="flex items-center gap-3 rounded-md border border-line bg-surface-2 px-3 py-2 text-left transition hover:border-accent hover:accent-shadow"
+                >
+                  <StylePresetSwatch preset={sp} />
+                  <span className="flex flex-col gap-0.5">
+                    <span className="text-xs font-medium text-ink">{sp.label}</span>
+                    <span className="text-[11px] text-ink-faint">{sp.sublabel}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {activeTab === "photo" && (
           <div className="flex flex-col gap-4">
             {imageUrl ? (

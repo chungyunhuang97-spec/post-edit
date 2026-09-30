@@ -8,7 +8,7 @@ import { renderPosterToCanvas } from "./exportPoster";
 import { analyzePhotoMood } from "./photoMood";
 import { PosterPreview } from "./PosterPreview";
 import { segmentSubject, type SubjectMask } from "./subjectSegmentation";
-import type { BracketStyleId, CanvasPreset, Cutout, FontOptionId, PosterLayoutId, ShapeId } from "./types";
+import type { BracketStyleId, CanvasPreset, Cutout, FontOptionId, PosterLayoutId, ShapeId, StylePreset } from "./types";
 import { randomizeCutouts, resetCutoutColors, resizeCutouts, setCutoutColor, wordCountOf } from "./useCutoutLayout";
 
 const DEFAULT_CUTOUT_COUNT = 6;
@@ -173,6 +173,31 @@ export function PhotoPosterTool() {
   const handleResetCutoutColors = useCallback(() => {
     setCutouts((prev) => resetCutoutColors(prev));
   }, []);
+
+  // Applies a full named look in one go -- every field a style preset
+  // covers is overwritten (including a fresh cutout scatter/count, so the
+  // poster visibly reshuffles rather than just recoloring), while the
+  // caption text, photo, and pan/zoom the user already set are left alone.
+  const handleApplyStylePreset = useCallback(
+    (preset: StylePreset) => {
+      setShapeId(preset.shapeId);
+      setBracketId(preset.bracketId);
+      setFontOptionId(preset.fontOptionId);
+      setLayout(preset.layout);
+      setTopBgColor(preset.topBgColor);
+      setTextColor(preset.textColor);
+      setScaleMultiplier(preset.scaleMultiplier);
+      setBaseFontSizePx(preset.baseFontSizePx);
+      setLineHeightMultiplier(preset.lineHeightMultiplier);
+      setLetterSpacingPx(preset.letterSpacingPx);
+      setDuotoneEnabled(preset.duotoneEnabled);
+      setGrainEnabled(preset.grainEnabled);
+      setGrainIntensity(preset.grainIntensity);
+      const fresh = randomizeCutouts(preset.cutoutCount, wordCountOf(caption));
+      setCutouts(fresh.map((c, i) => ({ ...c, color: preset.palette ? preset.palette[i % preset.palette.length] : null })));
+    },
+    [caption],
+  );
 
   // Suggests a new caption in a casual, social-caption tone -- when a
   // photo is uploaded, a quick client-side canvas analysis (brightness /
@@ -340,6 +365,7 @@ export function PhotoPosterTool() {
         <ControlPanel
           preset={preset}
           onChangeSize={() => setPreset(null)}
+          onApplyStylePreset={handleApplyStylePreset}
           imageUrl={imageUrl}
           onRequestUpload={handleRequestUpload}
           zoom={zoom}

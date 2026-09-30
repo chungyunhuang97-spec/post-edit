@@ -1,6 +1,6 @@
 import type { PhotoMood } from "./photoMood";
 import { clipPathFor } from "./shapes";
-import type { BracketOption, CanvasPreset, FontOption, LayoutOption, ShapeId, ShapeOption } from "./types";
+import type { BracketOption, CanvasPreset, FontOption, LayoutOption, ShapeId, ShapeOption, StylePreset } from "./types";
 
 // The caption/thumbnail zone is always exactly this fraction of the canvas
 // height -- a fixed half-and-half split, regardless of how long the
@@ -82,6 +82,132 @@ export const SHAPE_OPTIONS: ShapeOption[] = (Object.keys(SHAPE_LABELS) as ShapeI
   label: SHAPE_LABELS[id],
   clipPath: clipPathFor(id),
 }));
+
+// Six complete looks grounded in the 2026 "photo dump" moodboard (raw-grain
+// authenticity, sticker/"gumball memories" ephemera, cinematic flash
+// contrast, analog paper diaries, magazine-collage editorial cutting, plus
+// the tool's own original default) -- each bundles every tab's worth of
+// settings into one click so switching styles actually looks like a
+// different poster, not just a different color. Applying one is a full
+// reroll (like the existing 隨機圖形 button), not a locked mode: every value
+// it sets can still be nudged afterwards in its own tab.
+export const STYLE_PRESETS: StylePreset[] = [
+  {
+    id: "classic",
+    label: "經典手記",
+    sublabel: "工具原始預設 · 俐落無襯線",
+    shapeId: "square",
+    bracketId: "round-small",
+    fontOptionId: "sans",
+    layout: "text-top",
+    topBgColor: "#15111f",
+    textColor: "#f5f3ff",
+    scaleMultiplier: 0.5,
+    baseFontSizePx: 16,
+    lineHeightMultiplier: 1.5,
+    letterSpacingPx: 0,
+    duotoneEnabled: false,
+    grainEnabled: false,
+    grainIntensity: 30,
+    cutoutCount: 6,
+  },
+  {
+    id: "film-dump",
+    label: "底片手感",
+    sublabel: "顆粒 · 暖白紙感 · 手寫字",
+    shapeId: "rounded",
+    bracketId: "round-small",
+    fontOptionId: "handwriting",
+    layout: "photo-top",
+    topBgColor: "#f3e9da",
+    textColor: "#3d2f22",
+    scaleMultiplier: 0.9,
+    baseFontSizePx: 20,
+    lineHeightMultiplier: 1.6,
+    letterSpacingPx: 0,
+    duotoneEnabled: false,
+    grainEnabled: true,
+    grainIntensity: 35,
+    cutoutCount: 5,
+  },
+  {
+    id: "sticker-dump",
+    label: "貼紙萬花筒",
+    sublabel: "繽紛多色 · 花朵貼紙 · 花體字",
+    shapeId: "flower",
+    bracketId: "square",
+    fontOptionId: "script",
+    layout: "overlay-h",
+    topBgColor: "#ff5fa2",
+    textColor: "#fffbe8",
+    scaleMultiplier: 1.3,
+    baseFontSizePx: 18,
+    lineHeightMultiplier: 1.5,
+    letterSpacingPx: 0,
+    duotoneEnabled: false,
+    grainEnabled: false,
+    grainIntensity: 30,
+    cutoutCount: 7,
+    palette: ["#ff5fa2", "#ffd23f", "#3ddc97", "#5b7fff", "#ff8a3d", "#c86bff", "#2fe0d0"],
+  },
+  {
+    id: "cinematic-flash",
+    label: "底片沖印",
+    sublabel: "雙色調 · 高反差 · 閃光電影感",
+    shapeId: "square",
+    bracketId: "none",
+    fontOptionId: "display-black",
+    layout: "overlay-v",
+    topBgColor: "#120f10",
+    textColor: "#f4fff0",
+    scaleMultiplier: 0.7,
+    baseFontSizePx: 22,
+    lineHeightMultiplier: 1.3,
+    letterSpacingPx: 1,
+    duotoneEnabled: true,
+    grainEnabled: true,
+    grainIntensity: 40,
+    cutoutCount: 4,
+  },
+  {
+    id: "analog-diary",
+    label: "手寫日記",
+    sublabel: "留白 · 大地色 · 靜謐紙感",
+    shapeId: "circle",
+    bracketId: "none",
+    fontOptionId: "soft-serif",
+    layout: "text-top",
+    topBgColor: "#efe7da",
+    textColor: "#54483a",
+    scaleMultiplier: 0.8,
+    baseFontSizePx: 16,
+    lineHeightMultiplier: 1.8,
+    letterSpacingPx: 0,
+    duotoneEnabled: false,
+    grainEnabled: true,
+    grainIntensity: 15,
+    cutoutCount: 3,
+  },
+  {
+    id: "editorial-cutout",
+    label: "雜誌剪貼",
+    sublabel: "黑白 · 幾何圖形 · 襯線大標",
+    shapeId: "triangle",
+    bracketId: "square",
+    fontOptionId: "elegant-serif",
+    layout: "split-left",
+    topBgColor: "#111111",
+    textColor: "#f5f2ea",
+    scaleMultiplier: 1.0,
+    baseFontSizePx: 18,
+    lineHeightMultiplier: 1.4,
+    letterSpacingPx: 1,
+    duotoneEnabled: false,
+    grainEnabled: false,
+    grainIntensity: 30,
+    cutoutCount: 4,
+  },
+];
 
 export const BRACKET_OPTIONS: BracketOption[] = [
   { id: "round-small", label: "（小圖）全形括號", open: "（", close: "）" },

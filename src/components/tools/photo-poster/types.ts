@@ -93,3 +93,39 @@ export interface LayoutOption {
   id: PosterLayoutId;
   label: string;
 }
+
+/** A complete, one-click look: every knob that otherwise has to be tuned
+ * tab-by-tab (shape, bracket, font, layout, colors, type scale, duotone/
+ * grain, cutout count) bundled into a single named combination, so the
+ * poster can look genuinely different from one click instead of always
+ * drifting back to the same default look. */
+export type StylePresetId =
+  | "classic"
+  | "film-dump"
+  | "sticker-dump"
+  | "cinematic-flash"
+  | "analog-diary"
+  | "editorial-cutout";
+
+export interface StylePreset {
+  id: StylePresetId;
+  label: string;
+  sublabel: string;
+  shapeId: ShapeId;
+  bracketId: BracketStyleId;
+  fontOptionId: FontOptionId;
+  layout: PosterLayoutId;
+  topBgColor: string;
+  textColor: string;
+  scaleMultiplier: number;
+  baseFontSizePx: number;
+  lineHeightMultiplier: number;
+  letterSpacingPx: number;
+  duotoneEnabled: boolean;
+  grainEnabled: boolean;
+  grainIntensity: number;
+  cutoutCount: number;
+  /** Cycling per-cutout color override (candy-sticker look). Omitted means
+   * every cutout inherits topBgColor, as plain shapes cut from one sheet. */
+  palette?: string[];
+}
