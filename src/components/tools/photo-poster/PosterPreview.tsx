@@ -122,6 +122,9 @@ export interface PosterPreviewProps {
   collageLayoutId: CollageLayoutId;
   onRequestUpload2: () => void;
   onFilesDropped2: (files: FileList) => void;
+  /** Whether the caption renders at all -- false means photo(s) fill the
+   * entire canvas with no text zone, rather than an empty/collapsed one. */
+  captionEnabled: boolean;
   caption: string;
   cutouts: Cutout[];
   onCutoutsChange: (next: Cutout[]) => void;
@@ -157,6 +160,7 @@ export function PosterPreview({
   collageLayoutId,
   onRequestUpload2,
   onFilesDropped2,
+  captionEnabled,
   caption,
   cutouts,
   onCutoutsChange,
@@ -431,6 +435,10 @@ export function PosterPreview({
   const isOverlay = layout === "overlay-h" || layout === "overlay-v";
   const isRow = layout === "split-left" || layout === "split-right";
   const textFirst = layout === "text-top" || layout === "split-left";
+  // No caption at all -> the photo zone is the canvas's only content, same
+  // full-bleed structure the overlay layouts already use (never a split
+  // that reserves empty space for a caption that isn't there).
+  const fullBleed = isOverlay || !captionEnabled;
 
   const bandInset = `${((1 - OVERLAY_BAND_FRACTION) / 2) * 100}%`;
   const overlayTextStyle: React.CSSProperties = isOverlay
@@ -574,7 +582,7 @@ export function PosterPreview({
           content to size against and it collapsed to 0x0 -- confirmed by
           bisecting against the working non-overlay structure, which always
           keeps a normal in-flow child here. */}
-      {isOverlay && textZone}
+      {isOverlay && captionEnabled && textZone}
     </div>
   );
 
@@ -589,7 +597,7 @@ export function PosterPreview({
     />
   );
 
-  if (isOverlay) {
+  if (fullBleed) {
     return (
       <div ref={canvasRef} className="relative flex h-full w-full overflow-hidden" style={{ backgroundColor: topBgColor }}>
         {photoZone}

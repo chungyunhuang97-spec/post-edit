@@ -166,6 +166,9 @@ export interface RenderPosterParams {
   /** Second photo, only drawn when collageLayoutId isn't "single". */
   imageUrl2: string | null;
   collageLayoutId: CollageLayoutId;
+  /** Whether the caption renders at all -- false means the photo zone
+   * takes the full canvas and no text/inline-thumbnail pass runs. */
+  captionEnabled: boolean;
   caption: string;
   cutouts: Cutout[];
   shape: ShapeOption;
@@ -222,6 +225,7 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
     imageUrl,
     imageUrl2,
     collageLayoutId,
+    captionEnabled,
     caption,
     cutouts,
     shape,
@@ -252,7 +256,12 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   const gapY = 8 * scale; // matches Tailwind gap-y-2 (0.5rem)
 
   const isOverlay = layout === "overlay-h" || layout === "overlay-v";
-  const { text: textZone, photo: photoZone } = computeZones(layout, width, height);
+  // No caption at all -> the photo zone takes the whole canvas, same as the
+  // overlay layouts already do, rather than a split that reserves empty
+  // space for a caption that isn't there (mirrors PosterPreview.tsx).
+  const { text: textZone, photo: photoZone } = captionEnabled
+    ? computeZones(layout, width, height)
+    : { text: { x: 0, y: 0, w: 0, h: 0 }, photo: { x: 0, y: 0, w: width, h: height } };
 
   // CSS `%` padding (px-[6%] / py-[7%], both horizontal AND vertical)
   // resolves against the *containing block's width* -- here, the text
@@ -414,91 +423,96 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   // The overlay layouts have no separate background fill under the text
   // band (the initial full-canvas fill is now covered by the photo drawn
   // above), so paint an opaque band there before the text sits on top.
-  if (isOverlay) {
+  if (isOverlay && captionEnabled) {
     ctx.fillStyle = topBgColor;
     ctx.fillRect(textZone.x, textZone.y, textZone.w, textZone.h);
   }
 
-  if (subjectHalftoneEnabled && subjectMask) {
+  if (captionEnabled && subjectHalftoneEnabled && subjectMask) {
     drawSubjectHalftone(ctx, img, subjectMask, textZone, shape.id, textColor);
   }
 
   // --- Paint pass: caption text + inline cropped thumbnails, both
   // horizontally centered per line and vertically centered as a block
   // within the text zone (matching the live preview's content-center +
-  // justify-center) ---
-  ctx.font = `${fontPx}px ${fontFamily}`;
-  ctx.fillStyle = textColor;
-  ctx.textBaseline = "alphabetic";
+  // justify-center). Skipped entirely with no caption -- textZone is a
+  // zero-size rect in that case, so this would no-op anyway, but skipping
+  // it outright avoids setting up canvas state for nothing. ---
+  if (captionEnabled) {
+    ctx.font = `${fontPx}px ${fontFamily}`;
+    ctx.fillStyle = textColor;
+    ctx.textBaseline = "alphabetic";
 
-  // Clip to the text zone's own bounds, matching the live preview's
-  // overflow:hidden on that same box -- without this, a caption long
-  // enough to overflow its zone would keep drawing past it (bleeding into
-  // the photo zone below in the 4-way splits, or floating unbacked over
-  // the photo in the overlay layouts, since the opaque band fill above
-  // only covers the zone's own rect).
-  ctx.save();
-  ctx.beginPath();
-  ctx.rect(textZone.x, textZone.y, textZone.w, textZone.h);
-  ctx.clip();
+    // Clip to the text zone's own bounds, matching the live preview's
+    // overflow:hidden on that same box -- without this, a caption long
+    // enough to overflow its zone would keep drawing past it (bleeding into
+    // the photo zone below in the 4-way splits, or floating unbacked over
+    // the photo in the overlay layouts, since the opaque band fill above
+    // only covers the zone's own rect).
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(textZone.x, textZone.y, textZone.w, textZone.h);
+    ctx.clip();
 
-  const contentBoxHeight = Math.max(0, textZone.h - padY * 2);
-  let rowY = textZone.y + padY + Math.max(0, (contentBoxHeight - totalTextHeight) / 2);
+    const contentBoxHeight = Math.max(0, textZone.h - padY * 2);
+    let rowY = textZone.y + padY + Math.max(0, (contentBoxHeight - totalTextHeight) / 2);
 
-  lines.forEach((line, rowIndex) => {
-    const rowHeight = rowHeights[rowIndex];
-    const baselineY = rowY + rowHeight / 2 + fontPx * 0.35;
-    const lastItem = line[line.length - 1];
-    const lineWidth = lastItem.x + lastItem.width;
-    const lineStartX = textZone.x + padX + Math.max(0, (availableWidth - lineWidth) / 2);
+    lines.forEach((line, rowIndex) => {
+      const rowHeight = rowHeights[rowIndex];
+      const baselineY = rowY + rowHeight / 2 + fontPx * 0.35;
+      const lastItem = line[line.length - 1];
+      const lineWidth = lastItem.x + lastItem.width;
+      const lineStartX = textZone.x + padX + Math.max(0, (availableWidth - lineWidth) / 2);
 
-    line.forEach((item) => {
-      const drawX = lineStartX + item.x;
-      if (item.kind === "word") {
-        fillWithSpacing(ctx, item.text!, drawX, baselineY, letterSpacing);
-        return;
-      }
-      const cutout = cutoutById.get(item.cutoutId!);
-      if (!cutout) return;
+      line.forEach((item) => {
+        const drawX = lineStartX + item.x;
+        if (item.kind === "word") {
+          fillWithSpacing(ctx, item.text!, drawX, baselineY, letterSpacing);
+          return;
+        }
+        const cutout = cutoutById.get(item.cutoutId!);
+        if (!cutout) return;
 
-      const boxY = rowY + (rowHeight - squarePx) / 2;
-      if (bracket.open) ctx.fillText(bracket.open, drawX, baselineY);
-      const imgX = drawX + bracketOpenW;
+        const boxY = rowY + (rowHeight - squarePx) / 2;
+        if (bracket.open) ctx.fillText(bracket.open, drawX, baselineY);
+        const imgX = drawX + bracketOpenW;
 
-      const path = canvasShapePath(shape.id, imgX, boxY, squarePx);
-      if (!isDuo && photoZone.w > 0 && photoZone.h > 0) {
-        const { left, top } = cutoutImagePoint(cutout);
-        ctx.save();
-        ctx.clip(path);
-        ctx.drawImage(
-          photoSource,
-          0,
-          0,
-          srcW,
-          srcH,
-          imgX - left,
-          boxY - top,
-          bottomGeom.renderedW,
-          bottomGeom.renderedH,
-        );
-        ctx.restore();
-      } else if (isDuo) {
-        // A duo collage's cutout could fall over either photo, with no easy
-        // way to say which -- so instead of guessing, these draw as flat
-        // color chips, matching the solid sticker each already paints onto
-        // the photo zone itself (see the fillStyle loop above).
-        const prevFill = ctx.fillStyle;
-        ctx.fillStyle = cutout.color ?? topBgColor;
-        ctx.fill(path);
-        ctx.fillStyle = prevFill;
-      }
+        const path = canvasShapePath(shape.id, imgX, boxY, squarePx);
+        if (!isDuo && photoZone.w > 0 && photoZone.h > 0) {
+          const { left, top } = cutoutImagePoint(cutout);
+          ctx.save();
+          ctx.clip(path);
+          ctx.drawImage(
+            photoSource,
+            0,
+            0,
+            srcW,
+            srcH,
+            imgX - left,
+            boxY - top,
+            bottomGeom.renderedW,
+            bottomGeom.renderedH,
+          );
+          ctx.restore();
+        } else if (isDuo) {
+          // A duo collage's cutout could fall over either photo, with no
+          // easy way to say which -- so instead of guessing, these draw as
+          // flat color chips, matching the solid sticker each already
+          // paints onto the photo zone itself (see the fillStyle loop
+          // above).
+          const prevFill = ctx.fillStyle;
+          ctx.fillStyle = cutout.color ?? topBgColor;
+          ctx.fill(path);
+          ctx.fillStyle = prevFill;
+        }
 
-      if (bracket.close) ctx.fillText(bracket.close, imgX + squarePx, baselineY);
+        if (bracket.close) ctx.fillText(bracket.close, imgX + squarePx, baselineY);
+      });
+      rowY += rowHeight + gapY;
     });
-    rowY += rowHeight + gapY;
-  });
 
-  ctx.restore();
+    ctx.restore();
+  }
 
   // Last, so grain sits on top of literally everything -- photo, cutouts,
   // and caption text alike -- matching how film grain sits on top of an

@@ -26,6 +26,11 @@ export function PhotoPosterTool() {
   const [imageUrl2, setImageUrl2] = useState<string | null>(null);
   const [uploadError2, setUploadError2] = useState<string | null>(null);
   const [collageLayoutId, setCollageLayoutId] = useState<CollageLayoutId>("single");
+  // Whether the caption renders at all. In collage mode this is the whole
+  // point (photos fill the canvas; the caption is an optional band pressed
+  // on top of them, not a separate reserved zone) but it's a plain toggle
+  // in single mode too rather than something gated behind collage.
+  const [captionEnabled, setCaptionEnabled] = useState(true);
   const [caption, setCaption] = useState(INITIAL_CAPTION);
   const [cutouts, setCutouts] = useState<Cutout[]>(() =>
     randomizeCutouts(DEFAULT_CUTOUT_COUNT, wordCountOf(INITIAL_CAPTION)),
@@ -202,6 +207,23 @@ export function PhotoPosterTool() {
     setCutouts((prev) => resetCutoutColors(prev));
   }, []);
 
+  // With 2 photos already filling the whole photo zone, the 4 "split"
+  // layouts (a dedicated, separately-colored caption block beside/above the
+  // photo) stop making sense -- the mental model becomes "photo(s) fill the
+  // canvas, caption is an optional band on top of them", which is exactly
+  // what the two overlay layouts already are. So entering collage mode from
+  // one of the 4 split layouts snaps to overlay-h; leaving collage mode
+  // doesn't touch it back, since overlay still works fine for a single photo.
+  const handleCollageLayoutChange = useCallback(
+    (id: CollageLayoutId) => {
+      setCollageLayoutId(id);
+      if (id !== "single") {
+        setLayout((prev) => (prev === "overlay-h" || prev === "overlay-v" ? prev : "overlay-h"));
+      }
+    },
+    [],
+  );
+
   // Applies a full named look in one go -- every field a style preset
   // covers is overwritten (including a fresh cutout scatter/count, so the
   // poster visibly reshuffles rather than just recoloring), while the
@@ -261,6 +283,7 @@ export function PhotoPosterTool() {
         imageUrl,
         imageUrl2,
         collageLayoutId,
+        captionEnabled,
         caption,
         cutouts,
         shape,
@@ -299,6 +322,7 @@ export function PhotoPosterTool() {
     imageUrl,
     imageUrl2,
     collageLayoutId,
+    captionEnabled,
     caption,
     cutouts,
     shapeId,
@@ -377,6 +401,7 @@ export function PhotoPosterTool() {
             imageUrl2={imageUrl2}
             uploadError2={uploadError2}
             collageLayoutId={collageLayoutId}
+            captionEnabled={captionEnabled}
             onRequestUpload2={handleRequestUpload2}
             onFilesDropped2={handleFileList2}
             caption={caption}
@@ -458,7 +483,9 @@ export function PhotoPosterTool() {
           layout={layout}
           onLayoutChange={setLayout}
           collageLayoutId={collageLayoutId}
-          onCollageLayoutChange={setCollageLayoutId}
+          onCollageLayoutChange={handleCollageLayoutChange}
+          captionEnabled={captionEnabled}
+          onCaptionEnabledChange={setCaptionEnabled}
           subjectHalftoneEnabled={subjectHalftoneEnabled}
           onSubjectHalftoneEnabledChange={setSubjectHalftoneEnabled}
           subjectHalftoneStatus={subjectHalftoneStatus}

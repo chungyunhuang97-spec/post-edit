@@ -116,6 +116,8 @@ export interface ControlPanelProps {
   onLayoutChange: (id: PosterLayoutId) => void;
   collageLayoutId: CollageLayoutId;
   onCollageLayoutChange: (id: CollageLayoutId) => void;
+  captionEnabled: boolean;
+  onCaptionEnabledChange: (enabled: boolean) => void;
   subjectHalftoneEnabled: boolean;
   onSubjectHalftoneEnabledChange: (enabled: boolean) => void;
   subjectHalftoneStatus: "idle" | "loading" | "ready" | "unavailable";
@@ -176,6 +178,8 @@ export function ControlPanel(props: ControlPanelProps) {
     onLayoutChange,
     collageLayoutId,
     onCollageLayoutChange,
+    captionEnabled,
+    onCaptionEnabledChange,
     subjectHalftoneEnabled,
     onSubjectHalftoneEnabledChange,
     subjectHalftoneStatus,
@@ -344,6 +348,9 @@ export function ControlPanel(props: ControlPanelProps) {
 
         {activeTab === "caption" && (
           <div className="flex flex-col gap-3">
+            {!captionEnabled && (
+              <p className="text-xs text-ink-faint">目前「版型」分頁的顯示文案是關閉的，海報不會顯示文字，但你仍可以先把文案寫好。</p>
+            )}
             <div className="flex items-center justify-end">
               <button
                 type="button"
@@ -475,24 +482,44 @@ export function ControlPanel(props: ControlPanelProps) {
                 <p className="text-[11px] text-ink-faint">到「照片」分頁可以上傳第二張照片。</p>
               )}
             </div>
-            <div className="flex flex-col gap-2">
-              <p className="text-xs text-ink-muted">文字與照片的排版方式</p>
-              <div className="grid grid-cols-2 gap-2">
-                {LAYOUT_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => onLayoutChange(opt.id)}
-                    className={`flex items-center gap-2 rounded-md border px-3 py-2 text-left text-xs font-medium transition ${
-                      layout === opt.id ? "border-accent bg-accent-soft text-accent" : "border-line bg-surface-2 text-ink-muted"
-                    }`}
-                  >
-                    <LayoutIcon id={opt.id} />
-                    {opt.label}
-                  </button>
-                ))}
+
+            <label className="flex items-center justify-between rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-muted">
+              <span className="flex flex-col gap-0.5">
+                <span className="font-medium text-ink">顯示文案</span>
+                <span className="text-ink-faint">
+                  {collageLayoutId === "single" ? "關閉後照片鋪滿整張畫布，不顯示任何文字" : "拼貼模式下照片一律鋪滿畫布，文案只是可選的疊加層"}
+                </span>
+              </span>
+              <input
+                type="checkbox"
+                checked={captionEnabled}
+                onChange={(e) => onCaptionEnabledChange(e.target.checked)}
+                className="h-4 w-4 accent-accent"
+              />
+            </label>
+
+            {captionEnabled && (
+              <div className="flex flex-col gap-2">
+                <p className="text-xs text-ink-muted">{collageLayoutId === "single" ? "文字與照片的排版方式" : "文案疊加方向"}</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {(collageLayoutId === "single" ? LAYOUT_OPTIONS : LAYOUT_OPTIONS.filter((o) => o.id === "overlay-h" || o.id === "overlay-v")).map(
+                    (opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => onLayoutChange(opt.id)}
+                        className={`flex items-center gap-2 rounded-md border px-3 py-2 text-left text-xs font-medium transition ${
+                          layout === opt.id ? "border-accent bg-accent-soft text-accent" : "border-line bg-surface-2 text-ink-muted"
+                        }`}
+                      >
+                        <LayoutIcon id={opt.id} />
+                        {opt.label}
+                      </button>
+                    ),
+                  )}
+                </div>
               </div>
-            </div>
+            )}
             <label className="flex flex-col gap-1 text-xs text-ink-muted">
               上半部背景色
               <input
@@ -506,12 +533,14 @@ export function ControlPanel(props: ControlPanelProps) {
               <label className="flex items-center justify-between text-xs text-ink-muted">
                 <span className="flex flex-col gap-0.5">
                   <span className="font-medium text-ink">主體網點</span>
-                  <span className="text-ink-faint">用網點畫出照片裡偵測到的主體（人物/動物等）輪廓，取代文案底色</span>
+                  <span className="text-ink-faint">
+                    {captionEnabled ? "用網點畫出照片裡偵測到的主體（人物/動物等）輪廓，取代文案底色" : "需要先開啟「顯示文案」才有效果"}
+                  </span>
                 </span>
                 <input
                   type="checkbox"
                   checked={subjectHalftoneEnabled}
-                  disabled={!imageUrl}
+                  disabled={!imageUrl || !captionEnabled}
                   onChange={(e) => onSubjectHalftoneEnabledChange(e.target.checked)}
                   className="h-4 w-4 accent-accent disabled:opacity-40"
                 />
