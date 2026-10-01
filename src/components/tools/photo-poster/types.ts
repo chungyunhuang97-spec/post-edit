@@ -130,7 +130,7 @@ export interface StickerStyleOption {
  * drifting back to the same default look. */
 export type StylePresetId =
   | "film-dump"
-  | "sticker-dump"
+  | "gallery-poster"
   | "cutout-block"
   | "journal-dots"
   | "airy-words"
