@@ -59,8 +59,8 @@ export const COLLAGE_OPTIONS: CollageOption[] = [
 
 export const STICKER_STYLE_OPTIONS: StickerStyleOption[] = [
   { id: "die-cut", label: "切割貼紙", sublabel: "白色切邊 + 陰影" },
-  { id: "halftone", label: "網點填色", sublabel: "riso 印刷網點質感" },
-  { id: "polaroid", label: "拍立得", sublabel: "白框、微傾斜" },
+  { id: "halftone", label: "網點印刷", sublabel: "照片轉成 riso 網點" },
+  { id: "polaroid", label: "拍立得", sublabel: "白框方形相片、微傾斜" },
 ];
 
 export const LAYOUT_OPTIONS: LayoutOption[] = [

@@ -50,12 +50,6 @@ const TOOLS: { id: TabId; label: string; title: string; icon: ReactNode }[] = [
     ),
   },
   {
-    id: "caption",
-    label: "文案",
-    title: "文案內容",
-    icon: <path d="M4 5h16v11H9l-5 4V5z" />,
-  },
-  {
     id: "shapes",
     label: "圖形",
     title: "圖形",
@@ -65,6 +59,12 @@ const TOOLS: { id: TabId; label: string; title: string; icon: ReactNode }[] = [
         <rect x="12" y="12" width="9" height="9" rx="1" />
       </>
     ),
+  },
+  {
+    id: "caption",
+    label: "文案",
+    title: "文案內容",
+    icon: <path d="M4 5h16v11H9l-5 4V5z" />,
   },
   {
     id: "text",
@@ -334,6 +334,8 @@ export interface ToolPanelProps {
   suggestingCaption: boolean;
 
   cutouts: Cutout[];
+  shapesEnabled: boolean;
+  onShapesEnabledChange: (enabled: boolean) => void;
   onCutoutCountChange: (n: number) => void;
   onCutoutColorChange: (id: string, color: string) => void;
   onResetCutoutColors: () => void;
@@ -414,6 +416,8 @@ export function ToolPanel(props: ToolPanelProps) {
     onRegenerateCaption,
     suggestingCaption,
     cutouts,
+    shapesEnabled,
+    onShapesEnabledChange,
     onCutoutCountChange,
     onCutoutColorChange,
     onResetCutoutColors,
@@ -533,67 +537,25 @@ export function ToolPanel(props: ToolPanelProps) {
             </section>
 
             <section className="flex flex-col gap-3">
-              <SectionTitle>文案</SectionTitle>
-              <label className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-muted">
-                <span className="flex flex-col gap-0.5">
-                  <span className="font-medium text-ink">顯示文案</span>
-                  <span className="text-ink-faint">
-                    {isDuo ? "雙張照片一律鋪滿畫布，文案是疊在照片上的色帶" : "關閉後照片鋪滿整張畫布，不顯示任何文字"}
-                  </span>
-                </span>
-                <input
-                  type="checkbox"
-                  checked={captionEnabled}
-                  onChange={(e) => onCaptionEnabledChange(e.target.checked)}
-                  className="h-4 w-4 shrink-0 accent-accent"
-                />
-              </label>
-
-              {captionEnabled && (
-                <>
-                  <div className="flex flex-col gap-2">
-                    <p className="text-xs text-ink-muted">{isDuo ? "文案色帶方向" : "文案與照片的位置"}</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      {(isDuo ? LAYOUT_OPTIONS.filter((o) => o.id === "overlay-h" || o.id === "overlay-v") : LAYOUT_OPTIONS).map((opt) => (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          onClick={() => onLayoutChange(opt.id)}
-                          className={`flex items-center gap-2 rounded-md border px-3 py-2 text-left text-xs font-medium transition ${
-                            layout === opt.id ? "border-accent bg-accent-soft text-accent" : "border-line bg-surface-2 text-ink-muted"
-                          }`}
-                        >
-                          <LayoutIcon id={opt.id} />
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <ColorField label="文案底色" value={captionBgColor} onChange={onCaptionBgColorChange} />
-
-                  <div className="flex flex-col gap-1.5 rounded-md border border-line bg-surface-2 px-3 py-2">
-                    <label className="flex items-center justify-between gap-3 text-xs text-ink-muted">
-                      <span className="flex flex-col gap-0.5">
-                        <span className="font-medium text-ink">主體網點</span>
-                        <span className="text-ink-faint">用網點畫出照片裡偵測到的主體（人物/動物等）輪廓，取代文案底色</span>
-                      </span>
-                      <input
-                        type="checkbox"
-                        checked={subjectHalftoneEnabled}
-                        disabled={!imageUrl}
-                        onChange={(e) => onSubjectHalftoneEnabledChange(e.target.checked)}
-                        className="h-4 w-4 shrink-0 accent-accent disabled:opacity-40"
-                      />
-                    </label>
-                    {subjectHalftoneEnabled && subjectHalftoneStatus === "loading" && (
-                      <p className="text-[11px] text-ink-faint">偵測中，第一次使用需要下載辨識模型…</p>
-                    )}
-                    {subjectHalftoneEnabled && subjectHalftoneStatus === "unavailable" && (
-                      <p className="text-[11px] text-ink-faint">這張照片沒有偵測到可辨識的主體，暫時不會顯示效果。</p>
-                    )}
-                  </div>
-                </>
+              <SectionTitle>文案位置</SectionTitle>
+              {captionEnabled ? (
+                <div className="grid grid-cols-2 gap-2">
+                  {(isDuo ? LAYOUT_OPTIONS.filter((o) => o.id === "overlay-h" || o.id === "overlay-v") : LAYOUT_OPTIONS).map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => onLayoutChange(opt.id)}
+                      className={`flex items-center gap-2 rounded-md border px-3 py-2 text-left text-xs font-medium transition ${
+                        layout === opt.id ? "border-accent bg-accent-soft text-accent" : "border-line bg-surface-2 text-ink-muted"
+                      }`}
+                    >
+                      <LayoutIcon id={opt.id} />
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[11px] text-ink-faint">目前沒有顯示文案，照片鋪滿整張畫布。到「文案」分頁可以開啟。</p>
               )}
             </section>
           </div>
@@ -680,30 +642,84 @@ export function ToolPanel(props: ToolPanelProps) {
 
         {activeTab === "caption" && (
           <div className="flex flex-col gap-3">
-            {!captionEnabled && (
-              <p className="text-xs text-ink-faint">目前「版型」分頁的顯示文案是關閉的，海報不會顯示文字，但你仍可以先把文案寫好。</p>
+            <label className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-muted">
+              <span className="flex flex-col gap-0.5">
+                <span className="font-medium text-ink">顯示文案</span>
+                <span className="text-ink-faint">
+                  {isDuo ? "雙張照片一律鋪滿畫布，文案是疊在照片上的色帶" : "關閉後照片鋪滿整張畫布，不顯示任何文字"}
+                </span>
+              </span>
+              <input
+                type="checkbox"
+                checked={captionEnabled}
+                onChange={(e) => onCaptionEnabledChange(e.target.checked)}
+                className="h-4 w-4 shrink-0 accent-accent"
+              />
+            </label>
+
+            {captionEnabled && (
+              <>
+                <div className="flex items-center justify-end">
+                  <button
+                    type="button"
+                    onClick={onRegenerateCaption}
+                    disabled={suggestingCaption}
+                    className="rounded-full bg-accent-soft px-2 py-1 text-xs font-medium text-accent hover:opacity-80 disabled:opacity-50"
+                  >
+                    {suggestingCaption ? "分析照片中…" : "重新生成"}
+                  </button>
+                </div>
+                <textarea
+                  value={caption}
+                  onChange={(e) => onCaptionChange(e.target.value)}
+                  rows={4}
+                  className={`w-full resize-none ${fieldClass}`}
+                />
+
+                <ColorField label="文案底色" value={captionBgColor} onChange={onCaptionBgColorChange} />
+
+                <div className="flex flex-col gap-1.5 rounded-md border border-line bg-surface-2 px-3 py-2">
+                  <label className="flex items-center justify-between gap-3 text-xs text-ink-muted">
+                    <span className="flex flex-col gap-0.5">
+                      <span className="font-medium text-ink">主體網點</span>
+                      <span className="text-ink-faint">用網點畫出照片裡偵測到的主體（人物/動物等）輪廓，取代文案底色</span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={subjectHalftoneEnabled}
+                      disabled={!imageUrl}
+                      onChange={(e) => onSubjectHalftoneEnabledChange(e.target.checked)}
+                      className="h-4 w-4 shrink-0 accent-accent disabled:opacity-40"
+                    />
+                  </label>
+                  {subjectHalftoneEnabled && subjectHalftoneStatus === "loading" && (
+                    <p className="text-[11px] text-ink-faint">偵測中，第一次使用需要下載辨識模型…</p>
+                  )}
+                  {subjectHalftoneEnabled && subjectHalftoneStatus === "unavailable" && (
+                    <p className="text-[11px] text-ink-faint">這張照片沒有偵測到可辨識的主體，暫時不會顯示效果。</p>
+                  )}
+                </div>
+              </>
             )}
-            <div className="flex items-center justify-end">
-              <button
-                type="button"
-                onClick={onRegenerateCaption}
-                disabled={suggestingCaption}
-                className="rounded-full bg-accent-soft px-2 py-1 text-xs font-medium text-accent hover:opacity-80 disabled:opacity-50"
-              >
-                {suggestingCaption ? "分析照片中…" : "重新生成"}
-              </button>
-            </div>
-            <textarea
-              value={caption}
-              onChange={(e) => onCaptionChange(e.target.value)}
-              rows={5}
-              className={`w-full resize-none ${fieldClass}`}
-            />
           </div>
         )}
 
         {activeTab === "shapes" && (
           <div className="flex flex-col gap-4">
+            <label className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-muted">
+              <span className="flex flex-col gap-0.5">
+                <span className="font-medium text-ink">顯示圖形</span>
+                <span className="text-ink-faint">關閉後畫布與文案裡都不會出現圖形，設定仍會保留</span>
+              </span>
+              <input
+                type="checkbox"
+                checked={shapesEnabled}
+                onChange={(e) => onShapesEnabledChange(e.target.checked)}
+                className="h-4 w-4 shrink-0 accent-accent"
+              />
+            </label>
+            {shapesEnabled && (
+              <>
             {!imageUrl && <p className="text-xs text-ink-faint">上傳照片後，圖形才會出現在畫布上。</p>}
             <label className="flex flex-col gap-1">
               <span className="flex justify-between text-xs text-ink-muted">
@@ -814,6 +830,8 @@ export function ToolPanel(props: ToolPanelProps) {
                 ))}
               </div>
             </div>
+              </>
+            )}
           </div>
         )}
 

@@ -7,6 +7,7 @@ import { drawFilmGrain } from "./grain";
 import { drawSubjectHalftone } from "./subjectHalftone";
 import type { SubjectMask } from "./subjectSegmentation";
 import type { BracketOption, CollageLayoutId, Cutout, FontOption, PosterLayoutId, ShapeOption, StickerStyleId } from "./types";
+import { drawHalftoneTile, locateInPane, stickerSourceRect, type CropGeom } from "./stickerCrop";
 import { buildCaptionTokens, clampPct } from "./useCutoutLayout";
 
 const DUOTONE_PREVIEW_MAX_DIMENSION = 900;
@@ -181,6 +182,66 @@ export interface PosterPreviewProps {
   onFilesDropped: (files: FileList) => void;
 }
 
+/** Loads a URL into an HTMLImageElement (null until ready) so canvas
+ * drawing can sample the same bitmap the preview displays. */
+function useImageElement(url: string | null): HTMLImageElement | null {
+  const [state, setState] = useState<{ url: string; img: HTMLImageElement } | null>(null);
+  useEffect(() => {
+    if (!url) return;
+    let cancelled = false;
+    const img = new Image();
+    img.onload = () => {
+      if (!cancelled) setState({ url, img });
+    };
+    img.src = url;
+    return () => {
+      cancelled = true;
+    };
+  }, [url]);
+  return state && state.url === url ? state.img : null;
+}
+
+/** A sticker filled with a halftone print of the photo under it (see
+ * drawHalftoneTile). Falls back to a flat color until the photo is ready. */
+function HalftoneTile({
+  img,
+  geom,
+  x,
+  y,
+  size,
+  color,
+  clipPath,
+}: {
+  img: HTMLImageElement | null;
+  geom: CropGeom;
+  x: number;
+  y: number;
+  size: number;
+  color: string;
+  clipPath: string;
+}) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const { offsetX, offsetY, renderedW, renderedH } = geom;
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas || size <= 0) return;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(size * dpr);
+    canvas.height = Math.round(size * dpr);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const rect = img ? stickerSourceRect({ offsetX, offsetY, renderedW, renderedH }, img.naturalWidth, x, y, size, 1) : null;
+    if (img && rect) {
+      drawHalftoneTile(ctx, img, rect, 0, 0, size, color);
+    } else {
+      ctx.fillStyle = color;
+      ctx.fillRect(0, 0, size, size);
+    }
+  }, [img, offsetX, offsetY, renderedW, renderedH, x, y, size, color]);
+  return <canvas ref={ref} className="absolute inset-0" style={{ width: size, height: size, clipPath }} />;
+}
+
 export function PosterPreview({
   canvasRef,
   imageUrl,
@@ -273,6 +334,8 @@ export function PosterPreview({
   // flash the photo away for an instant.
   const displayImageUrl = duotoneEnabled ? (duotoneUrl ?? imageUrl) : imageUrl;
   const displayImageUrl2 = duotoneEnabled ? (duotoneUrl2 ?? imageUrl2) : imageUrl2;
+  const imageEl = useImageElement(displayImageUrl);
+  const imageEl2 = useImageElement(displayImageUrl2);
 
   useEffect(() => {
     const el = canvasRef.current;
@@ -428,50 +491,53 @@ export function PosterPreview({
   }
 
   function thumbStyle(cutout: Cutout): React.CSSProperties {
-    // In a duo collage a cutout's crop could fall over either photo, and
-    // the caption thumbnail has no easy way to say which -- so instead of
-    // guessing, duo mode always shows these as flat color chips (the same
-    // "no photo" fallback single mode already uses before any photo is
-    // uploaded), matching the solid sticker each one already paints onto
-    // the photo zone itself.
-    const thumbImage = isDuo ? null : displayImageUrl;
-    // xPct/yPct are relative to the *visible* box, not the full scaled
-    // image. The box's own viewport starts `-offsetX`/`-offsetY` pixels
-    // into the scaled image (offsetX/Y are <= 0, per computeCoverGeometry),
-    // so that's the base to add the on-box pixel offset to, giving the
-    // target point's position within the full scaled image.
-    const left = -geometry.offsetX + (cutout.xPct / 100) * paneBoxW;
-    const top = -geometry.offsetY + (cutout.yPct / 100) * paneBoxH;
+    // The thumbnail shows whichever photo the cutout sits over (in a duo
+    // collage that's decided by which pane its center falls in).
+    const crop = cropBackground(cutout, 1);
     return {
       width: squareSizePx,
       height: squareSizePx,
       display: "inline-block",
       verticalAlign: "middle",
-      backgroundImage: thumbImage ? `url(${thumbImage})` : undefined,
-      backgroundColor: thumbImage ? undefined : (cutout.color ?? "#d4d4d8"),
-      backgroundSize: `${geometry.renderedW}px ${geometry.renderedH}px`,
-      // Negate numerically (not by string-prefixing "-") since left/top are
-      // already negative whenever the cover-cropped image overflows its
-      // box on that axis -- string-prefixing would emit invalid double
-      // negatives like "--131px", which the browser silently drops,
-      // leaving the previous (stale) background-position in place.
-      backgroundPosition: `${-left}px ${-top}px`,
-      backgroundRepeat: "no-repeat",
+      ...(crop ?? { backgroundColor: cutout.color ?? stickerColor }),
       clipPath: shape.clipPath,
     };
   }
 
-  /** A tileable dot pattern (CSS radial-gradient repeated at a fixed size)
-   * standing in for a proper luminance-driven halftone -- a stylized riso/
-   * screen-print dot fill rather than the (photo-sampling) technique
-   * subjectHalftone.ts already uses elsewhere for a different purpose. */
-  function halftoneFillStyle(color: string): React.CSSProperties {
-    const dotSize = Math.max(3, squareSizePx * 0.16);
-    const dotRadius = dotSize * 0.32;
+  /** Which pane a cutout is over, its position inside that pane, and that
+   * pane's photo. */
+  function paneFor(cutout: Cutout) {
+    const loc = locateInPane(
+      collageLayoutId,
+      boxSize.w,
+      boxSize.h,
+      (cutout.xPct / 100) * boxSize.w,
+      (cutout.yPct / 100) * boxSize.h,
+      squareSizePx,
+    );
     return {
-      backgroundColor: "#ffffff",
-      backgroundImage: `radial-gradient(circle, ${color} ${dotRadius}px, transparent ${dotRadius}px)`,
-      backgroundSize: `${dotSize}px ${dotSize}px`,
+      ...loc,
+      geom: loc.index === 0 ? geometry : geometry2,
+      url: loc.index === 0 ? displayImageUrl : displayImageUrl2,
+      img: loc.index === 0 ? imageEl : imageEl2,
+    };
+  }
+
+  /** CSS background showing the photo region under a cutout, magnified
+   * about its center. Returns null when that pane has no photo yet. */
+  function cropBackground(cutout: Cutout, magnify: number): React.CSSProperties | null {
+    const p = paneFor(cutout);
+    if (!p.url || !p.geom.renderedW) return null;
+    // offsetX/Y are <= 0 (see computeCoverGeometry), so the cutout's point
+    // inside the full scaled image is p.x - offsetX. Positions are negated
+    // numerically (never string-prefixed) since they can already be negative.
+    const cx = (-p.geom.offsetX + p.x + squareSizePx / 2) * magnify;
+    const cy = (-p.geom.offsetY + p.y + squareSizePx / 2) * magnify;
+    return {
+      backgroundImage: `url(${p.url})`,
+      backgroundSize: `${p.geom.renderedW * magnify}px ${p.geom.renderedH * magnify}px`,
+      backgroundPosition: `${squareSizePx / 2 - cx}px ${squareSizePx / 2 - cy}px`,
+      backgroundRepeat: "no-repeat",
     };
   }
 
@@ -508,7 +574,13 @@ export function PosterPreview({
               transform: `rotate(${cutoutRotationDeg(cutout.id)}deg)`,
             }}
           >
-            <div className="absolute left-0 top-0" style={{ width: squareSizePx, height: squareSizePx, backgroundColor: fillColor, clipPath: shape.clipPath }} />
+            {/* A polaroid always holds a square print: the photo under it,
+                magnified a bit so it reads as a detail shot rather than an
+                invisible window onto the same pixels. */}
+            <div
+              className="absolute left-0 top-0"
+              style={{ width: squareSizePx, height: squareSizePx, backgroundColor: fillColor, ...(cropBackground(cutout, 1.7) ?? {}) }}
+            />
           </div>
         </div>
       );
@@ -528,10 +600,24 @@ export function PosterPreview({
             filter: "drop-shadow(0 3px 5px rgba(0,0,0,0.4))",
           }}
         />
-        <div
-          className="absolute inset-0"
-          style={stickerStyleId === "halftone" ? { ...halftoneFillStyle(fillColor), clipPath: shape.clipPath } : { backgroundColor: fillColor, clipPath: shape.clipPath }}
-        />
+        {stickerStyleId === "halftone" ? (
+          (() => {
+            const p = paneFor(cutout);
+            return (
+              <HalftoneTile
+                img={p.img}
+                geom={p.geom}
+                x={p.x}
+                y={p.y}
+                size={squareSizePx}
+                color={fillColor}
+                clipPath={shape.clipPath}
+              />
+            );
+          })()
+        ) : (
+          <div className="absolute inset-0" style={{ backgroundColor: fillColor, clipPath: shape.clipPath }} />
+        )}
       </div>
     );
   }

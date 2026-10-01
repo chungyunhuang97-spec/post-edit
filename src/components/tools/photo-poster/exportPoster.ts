@@ -6,6 +6,7 @@ import type { SubjectMask } from "./subjectSegmentation";
 import type { BracketOption, CollageLayoutId, Cutout, PosterLayoutId, ShapeOption, StickerStyleId } from "./types";
 import { buildCaptionTokens } from "./useCutoutLayout";
 import { canvasShapePath } from "./shapes";
+import { drawHalftoneTile, locateInPane, stickerSourceRect, type SourceRect } from "./stickerCrop";
 
 // The export renders at full poster resolution (often much larger than a
 // phone photo needs to be shown at), so the duotone pass caps its working
@@ -31,29 +32,6 @@ function cutoutRotationDeg(id: string): number {
   for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
   const t = (Math.abs(hash) % 100) / 100;
   return -8 + t * 16;
-}
-
-/** Draws a tileable dot pattern clipped to `path` -- the canvas-export
- * equivalent of PosterPreview.tsx's CSS radial-gradient halftoneFillStyle,
- * built by hand since canvas has no repeating-gradient-within-a-clip
- * primitive. White backing first (the "paper"), then a grid of filled
- * circles in `color` (the "ink"), both confined to `path` by one clip(). */
-function fillHalftoneDots(ctx: CanvasRenderingContext2D, path: Path2D, x: number, y: number, size: number, color: string) {
-  ctx.save();
-  ctx.clip(path);
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(x, y, size, size);
-  const dotSize = Math.max(3, size * 0.16);
-  const dotRadius = dotSize * 0.32;
-  ctx.fillStyle = color;
-  for (let dy = dotSize / 2; dy < size; dy += dotSize) {
-    for (let dx = dotSize / 2; dx < size; dx += dotSize) {
-      ctx.beginPath();
-      ctx.arc(x + dx, y + dy, dotRadius, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-  ctx.restore();
 }
 
 interface CoverGeometry {
@@ -402,17 +380,24 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   const paneBGeom = photoSource2 ? coverGeometry(paneB.w, paneB.h, srcW2, srcH2, pan2, zoom) : null;
   const cutoutById = new Map(cutouts.map((c) => [c.id, c]));
 
-  function cutoutImagePoint(cutout: Cutout) {
-    // Same math as the live preview's thumbStyle: where this cutout's
-    // top-left point falls within the full *scaled* source image --
-    // zone-local, since PosterPreview's ResizeObserver measurement (which
-    // this mirrors) is always relative to the photo zone's own box
-    // regardless of where that box sits on the canvas. Only meaningful in
-    // single-photo mode -- see the duo-mode fallback in the paint pass below.
-    return {
-      left: -bottomGeom.offsetX + (cutout.xPct / 100) * paneA.w,
-      top: -bottomGeom.offsetY + (cutout.yPct / 100) * paneA.h,
-    };
+  /** The photo (and source rect within it) a cutout sits over -- in a duo
+   * collage whichever pane its center falls in. Null when that pane has no
+   * photo. Same math as the live preview's cropBackground. */
+  function cropFor(cutout: Cutout, magnify: number): { src: CanvasImageSource; rect: SourceRect } | null {
+    const loc = locateInPane(
+      collageLayoutId,
+      photoZone.w,
+      photoZone.h,
+      (cutout.xPct / 100) * photoZone.w,
+      (cutout.yPct / 100) * photoZone.h,
+      squarePx,
+    );
+    const src = loc.index === 0 ? photoSource : photoSource2;
+    const geom = loc.index === 0 ? bottomGeom : paneBGeom;
+    const w = loc.index === 0 ? srcW : srcW2;
+    if (!src || !geom) return null;
+    const rect = stickerSourceRect(geom, w, loc.x, loc.y, squarePx, magnify);
+    return rect ? { src, rect } : null;
   }
 
   // --- Photo zone: full photo (or, in a duo collage, both photos side by
@@ -484,8 +469,13 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
         ctx.fillStyle = "#ffffff";
         ctx.fillRect(frameX, frameY, frameW, frameH);
         ctx.shadowColor = "transparent";
-        ctx.fillStyle = cutout.color ?? stickerColor;
-        ctx.fill(canvasShapePath(shape.id, x, y, squarePx));
+        const crop = cropFor(cutout, 1.7);
+        if (crop) {
+          ctx.drawImage(crop.src, crop.rect.sx, crop.rect.sy, crop.rect.sSize, crop.rect.sSize, x, y, squarePx, squarePx);
+        } else {
+          ctx.fillStyle = cutout.color ?? stickerColor;
+          ctx.fillRect(x, y, squarePx, squarePx);
+        }
         ctx.restore();
       });
     } else {
@@ -506,8 +496,13 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
       cutouts.forEach((cutout) => {
         const x = photoZone.x + (cutout.xPct / 100) * photoZone.w;
         const y = photoZone.y + (cutout.yPct / 100) * photoZone.h;
-        if (stickerStyleId === "halftone") {
-          fillHalftoneDots(ctx, canvasShapePath(shape.id, x, y, squarePx), x, y, squarePx, cutout.color ?? stickerColor);
+        const color = cutout.color ?? stickerColor;
+        const crop = stickerStyleId === "halftone" ? cropFor(cutout, 1) : null;
+        if (crop) {
+          ctx.save();
+          ctx.clip(canvasShapePath(shape.id, x, y, squarePx));
+          drawHalftoneTile(ctx, crop.src, crop.rect, x, y, squarePx, color);
+          ctx.restore();
         } else {
           ctx.fillStyle = cutout.color ?? stickerColor;
           ctx.fill(canvasShapePath(shape.id, x, y, squarePx));
@@ -574,28 +569,15 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
         const imgX = drawX + bracketOpenW;
 
         const path = canvasShapePath(shape.id, imgX, boxY, squarePx);
-        if (!isDuo && photoZone.w > 0 && photoZone.h > 0) {
-          const { left, top } = cutoutImagePoint(cutout);
+        const crop = photoZone.w > 0 && photoZone.h > 0 ? cropFor(cutout, 1) : null;
+        if (crop) {
           ctx.save();
           ctx.clip(path);
-          ctx.drawImage(
-            photoSource,
-            0,
-            0,
-            srcW,
-            srcH,
-            imgX - left,
-            boxY - top,
-            bottomGeom.renderedW,
-            bottomGeom.renderedH,
-          );
+          ctx.drawImage(crop.src, crop.rect.sx, crop.rect.sy, crop.rect.sSize, crop.rect.sSize, imgX, boxY, squarePx, squarePx);
           ctx.restore();
-        } else if (isDuo) {
-          // A duo collage's cutout could fall over either photo, with no
-          // easy way to say which -- so instead of guessing, these draw as
-          // flat color chips, matching the solid sticker each already
-          // paints onto the photo zone itself (see the fillStyle loop
-          // above).
+        } else {
+          // No photo under this cutout (e.g. the second slot is still
+          // empty): flat color chip, matching the sticker on the photo.
           const prevFill = ctx.fillStyle;
           ctx.fillStyle = cutout.color ?? stickerColor;
           ctx.fill(path);

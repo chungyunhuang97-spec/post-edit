@@ -48,6 +48,10 @@ export function PhotoPosterTool() {
     randomizeCutouts(DEFAULT_CUTOUT_COUNT, wordCountOf(INITIAL_CAPTION)),
   );
   const [locked, setLocked] = useState(false);
+  // Master switch for the cutout shapes. Off just hides them (preview,
+  // caption thumbnails and export) -- the cutout list itself is kept so
+  // turning it back on restores the same arrangement.
+  const [shapesEnabled, setShapesEnabled] = useState(true);
   const [shapeId, setShapeId] = useState<ShapeId>("square");
   const [stickerStyleId, setStickerStyleId] = useState<StickerStyleId>("die-cut");
   const [scaleMultiplier, setScaleMultiplier] = useState(0.5);
@@ -332,7 +336,7 @@ export function PhotoPosterTool() {
         collageLayoutId,
         captionEnabled,
         caption,
-        cutouts,
+        cutouts: shapesEnabled ? cutouts : [],
         shape,
         stickerStyleId,
         bracket,
@@ -377,6 +381,7 @@ export function PhotoPosterTool() {
     captionEnabled,
     caption,
     cutouts,
+    shapesEnabled,
     shapeId,
     stickerStyleId,
     bracketId,
@@ -481,7 +486,7 @@ export function PhotoPosterTool() {
             onRequestUpload2={handleRequestUpload2}
             onFilesDropped2={handleFileList2}
             caption={caption}
-            cutouts={cutouts}
+            cutouts={shapesEnabled ? cutouts : []}
             onCutoutsChange={setCutouts}
             locked={locked}
             squareSizePx={squareSizePx}
@@ -543,6 +548,8 @@ export function PhotoPosterTool() {
             onRegenerateCaption={handleRegenerateCaption}
             suggestingCaption={suggestingCaption}
             cutouts={cutouts}
+            shapesEnabled={shapesEnabled}
+            onShapesEnabledChange={setShapesEnabled}
             onCutoutCountChange={handleCutoutCountChange}
             onCutoutColorChange={handleCutoutColorChange}
             onResetCutoutColors={handleResetCutoutColors}
