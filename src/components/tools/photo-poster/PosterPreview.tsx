@@ -6,7 +6,21 @@ import { applyDuotone } from "./duotone";
 import { drawFilmGrain } from "./grain";
 import { drawSubjectHalftone } from "./subjectHalftone";
 import type { SubjectMask } from "./subjectSegmentation";
-import type { BracketOption, CollageLayoutId, Cutout, FontOption, PosterLayoutId, ShapeOption, StickerStyleId } from "./types";
+import { captionWords, cornerLines, tileSourceRect } from "./decorLayout";
+import { drawSilhouette } from "./silhouette";
+import type {
+  BracketOption,
+  CollageLayoutId,
+  Cutout,
+  DecorState,
+  Dot,
+  FontOption,
+  PosterLayoutId,
+  ShapeOption,
+  StickerStyleId,
+  Tile,
+  WordPos,
+} from "./types";
 import { drawHalftoneTile, locateInPane, stickerSourceRect, type CropGeom } from "./stickerCrop";
 import { buildCaptionTokens, clampPct } from "./useCutoutLayout";
 
@@ -169,6 +183,13 @@ export interface PosterPreviewProps {
   /** Independent crop position for the second photo in a duo collage. */
   pan2: { x: number; y: number };
   onPan2Change: (next: { x: number; y: number }) => void;
+  decor: DecorState;
+  tiles: Tile[];
+  onTilesChange: (next: Tile[]) => void;
+  dots: Dot[];
+  onDotsChange: (next: Dot[]) => void;
+  wordPositions: WordPos[];
+  onWordPositionsChange: (next: WordPos[]) => void;
   zoom: number;
   layout: PosterLayoutId;
   duotoneEnabled: boolean;
@@ -180,6 +201,48 @@ export interface PosterPreviewProps {
   subjectMask: SubjectMask | null;
   onRequestUpload: () => void;
   onFilesDropped: (files: FileList) => void;
+}
+
+/** The detected subject of the first photo, painted as a flat color shape
+ * (see silhouette.ts), aligned with that photo's cover-fit placement. */
+function SilhouetteCanvas({
+  mask,
+  color,
+  width,
+  height,
+  geom,
+}: {
+  mask: SubjectMask;
+  color: string;
+  width: number;
+  height: number;
+  geom: CropGeom;
+}) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const { offsetX, offsetY, renderedW, renderedH } = geom;
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas || width <= 0 || height <= 0) return;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawSilhouette(ctx, mask, color, { x: 0, y: 0, w: canvas.width, h: canvas.height }, {
+      offsetX: offsetX * dpr,
+      offsetY: offsetY * dpr,
+      renderedW: renderedW * dpr,
+      renderedH: renderedH * dpr,
+    });
+  }, [mask, color, width, height, offsetX, offsetY, renderedW, renderedH]);
+  return (
+    <canvas
+      ref={ref}
+      className="pointer-events-none absolute left-0 top-0"
+      style={{ width, height }}
+    />
+  );
 }
 
 /** Loads a URL into an HTMLImageElement (null until ready) so canvas
@@ -271,6 +334,13 @@ export function PosterPreview({
   onPanChange,
   pan2,
   onPan2Change,
+  decor,
+  tiles,
+  onTilesChange,
+  dots,
+  onDotsChange,
+  wordPositions,
+  onWordPositionsChange,
   zoom,
   layout,
   duotoneEnabled,
@@ -285,6 +355,30 @@ export function PosterPreview({
 }: PosterPreviewProps) {
   const [boxSize, setBoxSize] = useState({ w: 0, h: 0 });
   const [frameSize, setFrameSize] = useState({ w: 0, h: 0 });
+  // The area inside the frame border: the overlay layer's coordinate space.
+  const [contentSize, setContentSize] = useState({ w: 0, h: 0 });
+  const contentObserverRef = useRef<ResizeObserver | null>(null);
+  const contentRef = useCallback((el: HTMLDivElement | null) => {
+    contentObserverRef.current?.disconnect();
+    contentObserverRef.current = null;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      setContentSize({ w: entry.contentRect.width, h: entry.contentRect.height });
+    });
+    observer.observe(el);
+    contentObserverRef.current = observer;
+  }, []);
+  const overlayDrag = useRef<{
+    kind: "tile" | "dot" | "word";
+    id: string;
+    index: number;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+  } | null>(null);
   const grainCanvasRef = useRef<HTMLCanvasElement>(null);
   const [textZoneSize, setTextZoneSize] = useState({ w: 0, h: 0 });
   const subjectHalftoneCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -429,7 +523,10 @@ export function PosterPreview({
   const squareXPct = boxSize.w ? (squareSizePx / boxSize.w) * 100 : 0;
   const squareYPct = boxSize.h ? (squareSizePx / boxSize.h) * 100 : 0;
 
-  const tokens = buildCaptionTokens(caption, cutouts);
+  // With the words hidden, only the inline photo windows remain, so they
+  // gather in the middle of the block instead of spreading over blank gaps.
+  const allTokens = buildCaptionTokens(caption, cutouts);
+  const tokens = decor.showCaptionText ? allTokens : allTokens.filter((t) => t.kind === "cutout");
   const cutoutById = new Map(cutouts.map((c) => [c.id, c]));
 
   // Dragging the photo itself (not a cutout square) repositions which part
@@ -557,6 +654,14 @@ export function PosterPreview({
       cursor: locked ? "default" : "grab",
     };
 
+    if (stickerStyleId === "flat") {
+      return (
+        <div key={cutout.id} {...commonProps} className="absolute" style={outerStyle}>
+          <div className="absolute inset-0" style={{ backgroundColor: fillColor, clipPath: shape.clipPath }} />
+        </div>
+      );
+    }
+
     if (stickerStyleId === "polaroid") {
       const sideMargin = POLAROID_SIDE_FRACTION * squareSizePx;
       const bottomMargin = POLAROID_BOTTOM_FRACTION * squareSizePx;
@@ -637,14 +742,23 @@ export function PosterPreview({
   // that reserves empty space for a caption that isn't there).
   const fullBleed = isOverlay || !captionEnabled;
 
-  const bandInset = `${((1 - OVERLAY_BAND_FRACTION) / 2) * 100}%`;
+  // Before a photo is uploaded the caption zone never grows past half, so
+  // the "click to upload" target in the photo zone stays visible even for
+  // looks that would otherwise let the paper cover the whole poster.
+  const fraction = decor.captionFraction == null ? null : imageUrl ? decor.captionFraction : Math.min(decor.captionFraction, 0.5);
+  const bandFraction = fraction ?? OVERLAY_BAND_FRACTION;
+  const splitFraction = fraction ?? TOP_ZONE_FRACTION;
+  const bandInset = `${((1 - bandFraction) / 2) * 100}%`;
   const overlayTextStyle: React.CSSProperties = isOverlay
     ? layout === "overlay-h"
-      ? { position: "absolute", left: 0, right: 0, top: bandInset, height: `${OVERLAY_BAND_FRACTION * 100}%`, backgroundColor: captionBgColor }
-      : { position: "absolute", top: 0, bottom: 0, left: bandInset, width: `${OVERLAY_BAND_FRACTION * 100}%`, backgroundColor: captionBgColor }
+      ? { position: "absolute", left: 0, right: 0, top: bandInset, height: `${bandFraction * 100}%`, backgroundColor: captionBgColor }
+      : { position: "absolute", top: 0, bottom: 0, left: bandInset, width: `${bandFraction * 100}%`, backgroundColor: captionBgColor }
     : isRow
-      ? { width: `${TOP_ZONE_FRACTION * 100}%` }
-      : { height: `${TOP_ZONE_FRACTION * 100}%` };
+      ? { width: `${splitFraction * 100}%` }
+      : { height: `${splitFraction * 100}%` };
+
+  const flowText = decor.captionMode === "flow";
+  const textFontFamily = `${fontOption.cssVar}, ${fontOption.fallback}`;
 
   const textZone = (
     <div
@@ -654,7 +768,7 @@ export function PosterPreview({
       className={`relative isolate flex flex-shrink-0 flex-wrap content-center items-center justify-center gap-x-1 gap-y-2 overflow-hidden px-[6%] py-[7%] ${isOverlay ? "z-10" : ""}`}
       style={{
         color: textColor,
-        fontFamily: `${fontOption.cssVar}, ${fontOption.fallback}`,
+        fontFamily: textFontFamily,
         fontSize: baseFontSizePx,
         lineHeight: lineHeightMultiplier,
         letterSpacing: `${letterSpacingPx}px`,
@@ -668,17 +782,18 @@ export function PosterPreview({
           style={{ width: "100%", height: "100%" }}
         />
       )}
-      {tokens.map((token, i) =>
-        token.kind === "word" ? (
-          <span key={i}>{token.text}</span>
-        ) : (
-          <span key={i} className="inline-flex items-center" style={{ fontSize: baseFontSizePx }}>
-            {bracket.open}
-            <span data-cutout-id={token.cutoutId} style={thumbStyle(cutoutById.get(token.cutoutId)!)} />
-            {bracket.close}
-          </span>
-        ),
-      )}
+      {flowText &&
+        tokens.map((token, i) =>
+          token.kind === "word" ? (
+            <span key={i}>{token.text}</span>
+          ) : (
+            <span key={i} className="inline-flex items-center" style={{ fontSize: baseFontSizePx }}>
+              {bracket.open}
+              <span data-cutout-id={token.cutoutId} style={thumbStyle(cutoutById.get(token.cutoutId)!)} />
+              {bracket.close}
+            </span>
+          ),
+        )}
     </div>
   );
 
@@ -733,7 +848,7 @@ export function PosterPreview({
     <div
       key="photo"
       ref={bottomZoneRef}
-      className={`relative flex min-h-0 min-w-0 flex-1 select-none touch-none gap-px bg-surface-2 ${
+      className={`relative flex min-h-0 min-w-0 flex-1 select-none touch-none bg-surface-2 ${decor.frameInsetPct > 0 ? "" : "gap-px"} ${
         collageLayoutId === "duo-v" ? "flex-col" : "flex-row"
       }`}
     >
@@ -748,6 +863,20 @@ export function PosterPreview({
         </>
       ) : (
         photoPane(imageUrl, displayImageUrl, geometry, 1, onRequestUpload, onFilesDropped, uploadError, true)
+      )}
+      {isDuo && decor.frameInsetPct > 0 && (
+        <div
+          className="pointer-events-none absolute"
+          style={{
+            backgroundColor: decor.frameColor,
+            ...(collageLayoutId === "duo-h"
+              ? { top: 0, bottom: 0, left: "50%", width: (frameSize.w * decor.frameInsetPct) / 100, transform: "translateX(-50%)" }
+              : { left: 0, right: 0, top: "50%", height: (frameSize.w * decor.frameInsetPct) / 100, transform: "translateY(-50%)" }),
+          }}
+        />
+      )}
+      {decor.silhouetteEnabled && subjectMask && imageUrl && (
+        <SilhouetteCanvas mask={subjectMask} color={decor.silhouetteColor} width={paneBoxW} height={paneBoxH} geom={geometry} />
       )}
       {imageUrl && cutouts.map((cutout) => renderSticker(cutout))}
       {/* Overlay layouts nest the text band *inside* the photo zone (as its
@@ -764,6 +893,153 @@ export function PosterPreview({
     </div>
   );
 
+  // --- Free-position overlay layer: small photo tiles, solid dots, and the
+  // corner / scatter caption modes. Positions are % of the area inside the
+  // frame, so they follow any canvas size; the export mirrors this. ---
+  function startOverlayDrag(
+    e: ReactPointerEvent<HTMLElement>,
+    kind: "tile" | "dot" | "word",
+    id: string,
+    index: number,
+    originX: number,
+    originY: number,
+  ) {
+    if (locked || !contentSize.w || !contentSize.h) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    overlayDrag.current = { kind, id, index, startX: e.clientX, startY: e.clientY, originX, originY };
+  }
+
+  function moveOverlayDrag(e: ReactPointerEvent<HTMLElement>) {
+    const d = overlayDrag.current;
+    if (!d || !contentSize.w || !contentSize.h) return;
+    const x = d.originX + ((e.clientX - d.startX) / contentSize.w) * 100;
+    const y = d.originY + ((e.clientY - d.startY) / contentSize.h) * 100;
+    if (d.kind === "tile") {
+      onTilesChange(
+        tiles.map((t) =>
+          t.id === d.id
+            ? { ...t, xPct: clampPct(x, t.wPct), yPct: clampPct(y, ((t.wPct / t.aspect) * contentSize.w) / contentSize.h) }
+            : t,
+        ),
+      );
+    } else if (d.kind === "dot") {
+      onDotsChange(dots.map((dot) => (dot.id === d.id ? { ...dot, xPct: clampPct(x, 0), yPct: clampPct(y, 0) } : dot)));
+    } else {
+      onWordPositionsChange(wordPositions.map((w, i) => (i === d.index ? { xPct: clampPct(x, 0), yPct: clampPct(y, 0) } : w)));
+    }
+  }
+
+  function endOverlayDrag() {
+    overlayDrag.current = null;
+  }
+
+  const overlayCursor = locked ? "default" : "grab";
+  const showOverlayText = captionEnabled && decor.showCaptionText;
+
+  function renderTile(tile: Tile, i: number) {
+    const useSecond = tile.photo === 1 && !!imageUrl2;
+    const url = useSecond ? displayImageUrl2 : displayImageUrl;
+    const nat = useSecond ? natural2 : natural;
+    const tw = (tile.wPct / 100) * contentSize.w;
+    const th = tw / tile.aspect;
+    let bg: React.CSSProperties = { backgroundColor: "#d4d4d8" };
+    if (url && nat.w && nat.h && tw > 0) {
+      const r = tileSourceRect(tile, nat.w, nat.h);
+      const k = tw / r.sw;
+      bg = {
+        backgroundImage: `url(${url})`,
+        backgroundSize: `${nat.w * k}px ${nat.h * k}px`,
+        backgroundPosition: `${-r.sx * k}px ${-r.sy * k}px`,
+        backgroundRepeat: "no-repeat",
+      };
+    }
+    return (
+      <div
+        key={tile.id}
+        className="pointer-events-auto absolute"
+        style={{ left: `${tile.xPct}%`, top: `${tile.yPct}%`, width: tw, height: th, cursor: overlayCursor, ...bg }}
+        onPointerDown={(e) => startOverlayDrag(e, "tile", tile.id, i, tile.xPct, tile.yPct)}
+        onPointerMove={moveOverlayDrag}
+        onPointerUp={endOverlayDrag}
+      >
+        {decor.tileNumbered && (
+          <span
+            className="pointer-events-none absolute left-0 whitespace-nowrap"
+            style={{ top: "-1.15em", fontSize: baseFontSizePx * 0.7, lineHeight: 1, color: textColor, fontFamily: textFontFamily }}
+          >
+            ({i + 1})
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  const words = showOverlayText && decor.captionMode === "scatter" ? captionWords(caption) : [];
+  const overlayLayer = (
+    <div className="pointer-events-none absolute inset-0 z-[15] overflow-hidden" style={{ color: textColor }}>
+      {decor.tilesEnabled && imageUrl && tiles.map((tile, i) => renderTile(tile, i))}
+      {decor.dotsEnabled &&
+        dots.map((dot) => (
+          <div
+            key={dot.id}
+            className="pointer-events-auto absolute rounded-full"
+            style={{
+              left: `${dot.xPct}%`,
+              top: `${dot.yPct}%`,
+              width: decor.dotSizePx,
+              height: decor.dotSizePx,
+              transform: "translate(-50%, -50%)",
+              backgroundColor: dot.color,
+              cursor: overlayCursor,
+            }}
+            onPointerDown={(e) => startOverlayDrag(e, "dot", dot.id, 0, dot.xPct, dot.yPct)}
+            onPointerMove={moveOverlayDrag}
+            onPointerUp={endOverlayDrag}
+          />
+        ))}
+      {words.map((word, i) => {
+        const pos = wordPositions[i];
+        if (!pos) return null;
+        return (
+          <div
+            key={`${i}-${word}`}
+            className="pointer-events-auto absolute whitespace-nowrap"
+            style={{
+              left: `${pos.xPct}%`,
+              top: `${pos.yPct}%`,
+              transform: "translate(-50%, -50%)",
+              fontFamily: textFontFamily,
+              fontSize: baseFontSizePx,
+              lineHeight: 1,
+              cursor: overlayCursor,
+            }}
+            onPointerDown={(e) => startOverlayDrag(e, "word", word, i, pos.xPct, pos.yPct)}
+            onPointerMove={moveOverlayDrag}
+            onPointerUp={endOverlayDrag}
+          >
+            <span
+              className="absolute left-1/2 top-1/2 h-1 w-1 rounded-full"
+              style={{ backgroundColor: textColor, transform: "translate(-50%, calc(-50% - 0.95em))" }}
+            />
+            {word}
+          </div>
+        );
+      })}
+      {showOverlayText && decor.captionMode === "corner" && (
+        <div
+          className="pointer-events-none absolute text-right"
+          style={{ right: "5%", top: "4%", fontFamily: textFontFamily, fontSize: baseFontSizePx * 0.85, lineHeight: 1 }}
+        >
+          {cornerLines(caption).map((line, i) => (
+            <div key={i} style={{ marginBottom: "1.6em" }}>
+              {line}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
   // Sits above every other layer (photo, cutouts, caption text) in both
   // branches below, matching how film grain sits on top of an actual
   // printed poster rather than being just another background layer.
@@ -775,22 +1051,26 @@ export function PosterPreview({
     />
   );
 
-  if (fullBleed) {
-    return (
-      <div ref={canvasRef} className="relative flex h-full w-full overflow-hidden" style={{ backgroundColor: captionBgColor }}>
-        {photoZone}
-        {grainOverlay}
-      </div>
-    );
-  }
-
+  // The outer element is what gets measured/exported (frame included); the
+  // inner one is the poster's content area, inset by the frame border
+  // (padding in % is relative to width on all sides, matching the export).
   return (
     <div
       ref={canvasRef}
-      className={`relative flex h-full w-full overflow-hidden ${isRow ? "flex-row" : "flex-col"}`}
-      style={{ backgroundColor: captionBgColor }}
+      className="relative h-full w-full overflow-hidden"
+      style={{
+        backgroundColor: decor.frameInsetPct > 0 ? decor.frameColor : captionBgColor,
+        padding: `${decor.frameInsetPct}%`,
+      }}
     >
-      {textFirst ? [textZone, photoZone] : [photoZone, textZone]}
+      <div
+        ref={contentRef}
+        className={`relative flex h-full w-full overflow-hidden ${fullBleed ? "" : isRow ? "flex-row" : "flex-col"}`}
+        style={{ backgroundColor: captionBgColor }}
+      >
+        {fullBleed ? photoZone : textFirst ? [textZone, photoZone] : [photoZone, textZone]}
+        {overlayLayer}
+      </div>
       {grainOverlay}
     </div>
   );

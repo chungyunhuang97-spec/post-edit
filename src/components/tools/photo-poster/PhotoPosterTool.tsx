@@ -2,24 +2,32 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BRACKET_OPTIONS, FONT_OPTIONS, SHAPE_OPTIONS, generateSocialCaption } from "./constants";
+import { captionWords, makeDots, makeTiles, makeWordPositions } from "./decorLayout";
 import { CanvasSizeStep } from "./CanvasSizeStep";
 import { ToolPanel, ToolRail, type TabId } from "./ControlPanel";
 import { renderPosterToCanvas } from "./exportPoster";
 import { loadUploadedImage } from "./imageUpload";
 import { analyzePhotoMood } from "./photoMood";
 import { PosterPreview } from "./PosterPreview";
+import { buildStyleState } from "./stylePresets";
+import { useStyleThumbnails } from "./styleThumbnails";
 import { segmentSubject, type SubjectMask } from "./subjectSegmentation";
 import type {
   BracketStyleId,
   CanvasPreset,
   CollageLayoutId,
   Cutout,
+  DecorState,
+  Dot,
   FontOptionId,
   PosterLayoutId,
   ShapeId,
   StickerStyleId,
   StylePreset,
+  Tile,
+  WordPos,
 } from "./types";
+import { DEFAULT_DECOR } from "./types";
 import { randomizeCutouts, resetCutoutColors, resizeCutouts, setCutoutColor, wordCountOf } from "./useCutoutLayout";
 
 const DEFAULT_CUTOUT_COUNT = 6;
@@ -78,6 +86,14 @@ export function PhotoPosterTool() {
   const [exporting, setExporting] = useState(false);
   const [layout, setLayout] = useState<PosterLayoutId>("text-top");
   const [suggestingCaption, setSuggestingCaption] = useState(false);
+  // Frame / caption mode / silhouette settings, plus the free-placed small
+  // photos, dots and scattered words they drive (see DecorState).
+  const [decor, setDecor] = useState<DecorState>(DEFAULT_DECOR);
+  const [tiles, setTiles] = useState<Tile[]>([]);
+  const [dots, setDots] = useState<Dot[]>([]);
+  const [wordPositions, setWordPositions] = useState<WordPos[]>([]);
+  const [activeStyleId, setActiveStyleId] = useState<string | null>(null);
+  const patchDecor = useCallback((patch: Partial<DecorState>) => setDecor((d) => ({ ...d, ...patch })), []);
   const [duotoneEnabled, setDuotoneEnabled] = useState(false);
   const [grainEnabled, setGrainEnabled] = useState(false);
   const [grainIntensity, setGrainIntensity] = useState(30);
@@ -205,7 +221,7 @@ export function PhotoPosterTool() {
   // and only once per photo, since the result is reused by both the live
   // preview and the export rather than segmenting twice.
   useEffect(() => {
-    if (!subjectHalftoneEnabled || !imageUrl) return;
+    if (!(subjectHalftoneEnabled || decor.silhouetteEnabled) || !imageUrl) return;
     if (subjectMaskForUrlRef.current === imageUrl) return;
     subjectMaskForUrlRef.current = imageUrl;
     setSubjectMask(null);
@@ -219,7 +235,7 @@ export function PhotoPosterTool() {
     return () => {
       cancelled = true;
     };
-  }, [subjectHalftoneEnabled, imageUrl]);
+  }, [subjectHalftoneEnabled, decor.silhouetteEnabled, imageUrl]);
 
   const handleCutoutCountChange = useCallback(
     (n: number) => {
@@ -245,61 +261,154 @@ export function PhotoPosterTool() {
     setCutouts((prev) => resetCutoutColors(prev));
   }, []);
 
-  // With 2 photos already filling the whole photo zone, the 4 "split"
-  // layouts (a dedicated, separately-colored caption block beside/above the
-  // photo) stop making sense -- the mental model becomes "photo(s) fill the
-  // canvas, caption is an optional band on top of them", which is exactly
-  // what the two overlay layouts already are. So entering collage mode from
-  // one of the 4 split layouts snaps to overlay-h; leaving collage mode
-  // doesn't touch it back, since overlay still works fine for a single photo.
-  const handleCollageLayoutChange = useCallback(
-    (id: CollageLayoutId) => {
-      setCollageLayoutId(id);
-      if (id !== "single") {
-        setLayout((prev) => (prev === "overlay-h" || prev === "overlay-v" ? prev : "overlay-h"));
-        // The default scale was tuned for a sticker sitting inline within a
-        // line of caption text -- against two full-bleed photos with no
-        // caption at all, that same size reads as a stray, broken-looking
-        // speck rather than a deliberate sticker. Bump it up (once, only
-        // while still at/under that original default) so a fresh collage
-        // starts out legible; a user who already sized it up keeps their
-        // choice.
-        setScaleMultiplier((prev) => (prev <= 0.5 ? 1.4 : prev));
-      }
-    },
-    [],
-  );
+  const handleCollageLayoutChange = useCallback((id: CollageLayoutId) => {
+    setCollageLayoutId(id);
+    if (id !== "single") {
+      // The default scale was tuned for a sticker sitting inline within a
+      // line of caption text -- against two full-bleed photos with no
+      // caption at all, that same size reads as a stray, broken-looking
+      // speck rather than a deliberate sticker. Bump it up (once, only
+      // while still at/under that original default) so a fresh collage
+      // starts out legible; a user who already sized it up keeps their
+      // choice.
+      setScaleMultiplier((prev) => (prev <= 0.5 ? 1.4 : prev));
+    }
+  }, []);
 
   // Applies a full named look in one go -- every field a style preset
   // covers is overwritten (including a fresh cutout scatter/count, so the
   // poster visibly reshuffles rather than just recoloring), while the
   // caption text, photo, and pan/zoom the user already set are left alone.
   const handleApplyStylePreset = useCallback(
-    (preset: StylePreset) => {
-      setShapeId(preset.shapeId);
-      setBracketId(preset.bracketId);
-      setFontOptionId(preset.fontOptionId);
-      // Two-photo layouts only support the overlay arrangements, so a
-      // preset's split layout would leave no option selected.
-      setLayout((prev) => (collageLayoutId === "single" || preset.layout.startsWith("overlay") ? preset.layout : prev));
-      setCaptionBgColor(preset.captionBgColor);
-      setTextColor(preset.textColor);
-      setStickerColor(preset.captionBgColor);
-      setDuotoneDark(preset.captionBgColor);
-      setDuotoneLight(preset.textColor);
-      setScaleMultiplier(preset.scaleMultiplier);
-      setBaseFontSizePx(preset.baseFontSizePx);
-      setLineHeightMultiplier(preset.lineHeightMultiplier);
-      setLetterSpacingPx(preset.letterSpacingPx);
-      setDuotoneEnabled(preset.duotoneEnabled);
-      setGrainEnabled(preset.grainEnabled);
-      setGrainIntensity(preset.grainIntensity);
-      setSubjectHalftoneEnabled(preset.subjectHalftoneEnabled ?? false);
-      const fresh = randomizeCutouts(preset.cutoutCount, wordCountOf(caption));
-      setCutouts(fresh.map((c, i) => ({ ...c, color: preset.palette ? preset.palette[i % preset.palette.length] : null })));
+    (style: StylePreset) => {
+      if (!preset) return;
+      const st = buildStyleState(style, {
+        caption,
+        canvasAspect: preset.width / preset.height,
+        photoCount: collageLayoutId !== "single" && imageUrl2 ? 2 : 1,
+      });
+      setActiveStyleId(style.id);
+      setShapeId(st.shapeId);
+      setBracketId(st.bracketId);
+      setFontOptionId(st.fontOptionId);
+      setLayout(st.layout);
+      setCaptionBgColor(st.captionBgColor);
+      setTextColor(st.textColor);
+      setStickerColor(st.stickerColor);
+      setDuotoneEnabled(false);
+      setScaleMultiplier(st.scaleMultiplier);
+      setBaseFontSizePx(st.baseFontSizePx);
+      setLineHeightMultiplier(st.lineHeightMultiplier);
+      setLetterSpacingPx(st.letterSpacingPx);
+      setGrainEnabled(st.grainEnabled);
+      setGrainIntensity(st.grainIntensity);
+      setSubjectHalftoneEnabled(false);
+      setStickerStyleId(st.stickerStyleId);
+      setShapesEnabled(st.shapesEnabled);
+      setCaptionEnabled(st.captionEnabled);
+      setDecor(st.decor);
+      setCutouts(st.cutouts);
+      setTiles(st.tiles);
+      setDots(st.dots);
+      setWordPositions(st.wordPositions);
     },
-    [caption, collageLayoutId],
+    [caption, collageLayoutId, imageUrl2, preset],
   );
+
+  // --- Free-placed layers (small photos, dots, scattered words). Turning a
+  // layer on for the first time generates it; the count sliders keep what's
+  // already placed and only add/remove the difference; "shuffle" re-rolls.
+  const canvasAspect = preset ? preset.width / preset.height : 0.8;
+  const photoCount = collageLayoutId !== "single" && imageUrl2 ? 2 : 1;
+  const TILE_REGION = { x0: 8, y0: 10, x1: 92, y1: 90 };
+  const DOT_REGION = { x0: 5, y0: 5, x1: 95, y1: 95 };
+  const WORD_REGION = { x0: 12, y0: 15, x1: 88, y1: 85 };
+
+  const handleTilesEnabledChange = useCallback(
+    (enabled: boolean) => {
+      patchDecor({ tilesEnabled: enabled });
+      if (enabled && tiles.length === 0) setTiles(makeTiles(4, TILE_REGION, canvasAspect, photoCount));
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tiles.length, canvasAspect, photoCount, patchDecor],
+  );
+  const handleTileCountChange = useCallback(
+    (n: number) =>
+      setTiles((prev) =>
+        n <= prev.length ? prev.slice(0, n) : [...prev, ...makeTiles(n - prev.length, TILE_REGION, canvasAspect, photoCount)],
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [canvasAspect, photoCount],
+  );
+  const handleShuffleTiles = useCallback(
+    () => setTiles((prev) => makeTiles(prev.length, TILE_REGION, canvasAspect, photoCount)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [canvasAspect, photoCount],
+  );
+
+  const handleDotsEnabledChange = useCallback(
+    (enabled: boolean) => {
+      patchDecor({ dotsEnabled: enabled });
+      if (enabled && dots.length === 0) setDots(makeDots(5, DOT_REGION, ["#f4b400", "#1a56db", "#d9381e", "#188038"]));
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dots.length, patchDecor],
+  );
+  const handleDotCountChange = useCallback(
+    (n: number) =>
+      setDots((prev) =>
+        n <= prev.length
+          ? prev.slice(0, n)
+          : [...prev, ...makeDots(n - prev.length, DOT_REGION, ["#f4b400", "#1a56db", "#d9381e", "#188038"])],
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  const handleShuffleDots = useCallback(
+    () =>
+      setDots((prev) =>
+        makeDots(prev.length, DOT_REGION, prev.length ? [...new Set(prev.map((d) => d.color))] : ["#1a56db"]).map((d, i) => ({
+          ...d,
+          color: prev[i]?.color ?? d.color,
+        })),
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+  const handleDotColorChange = useCallback(
+    (id: string, color: string) => setDots((prev) => prev.map((d) => (d.id === id ? { ...d, color } : d))),
+    [],
+  );
+  const handleShuffleWords = useCallback(
+    () => setWordPositions(makeWordPositions(captionWords(caption).length, WORD_REGION)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [caption],
+  );
+
+  // Scatter mode needs an anchor per word: top up (keeping existing
+  // positions) whenever the mode is switched on or the caption gains words.
+  const ensureWordPositions = useCallback((count: number) => {
+    setWordPositions((prev) =>
+      prev.length >= count ? prev : [...prev, ...makeWordPositions(count - prev.length, WORD_REGION)],
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const handleDecorChange = useCallback(
+    (patch: Partial<DecorState>) => {
+      patchDecor(patch);
+      if (patch.captionMode === "scatter") ensureWordPositions(captionWords(caption).length);
+    },
+    [patchDecor, ensureWordPositions, caption],
+  );
+  const handleCaptionChange = useCallback(
+    (text: string) => {
+      setCaption(text);
+      if (decor.captionMode === "scatter") ensureWordPositions(captionWords(text).length);
+    },
+    [decor.captionMode, ensureWordPositions],
+  );
+
+  const styleThumbs = useStyleThumbnails(activeTab === "style");
 
   // Suggests a new caption in a casual, social-caption tone -- when a
   // photo is uploaded, a quick client-side canvas analysis (brightness /
@@ -310,11 +419,13 @@ export function PhotoPosterTool() {
     setSuggestingCaption(true);
     try {
       const mood = imageUrl ? await analyzePhotoMood(imageUrl) : "neutral";
-      setCaption(generateSocialCaption(mood));
+      const next = generateSocialCaption(mood);
+      setCaption(next);
+      if (decor.captionMode === "scatter") ensureWordPositions(captionWords(next).length);
     } finally {
       setSuggestingCaption(false);
     }
-  }, [imageUrl]);
+  }, [imageUrl, decor.captionMode, ensureWordPositions]);
 
   const handleExport = useCallback(async () => {
     if (!canvasRef.current || !preset || !imageUrl) return;
@@ -351,6 +462,10 @@ export function PhotoPosterTool() {
         previewWidthPx,
         pan,
         pan2,
+        decor,
+        tiles,
+        dots,
+        wordPositions,
         zoom,
         layout,
         duotoneEnabled,
@@ -395,6 +510,10 @@ export function PhotoPosterTool() {
     scaleMultiplier,
     pan,
     pan2,
+    decor,
+    tiles,
+    dots,
+    wordPositions,
     zoom,
     layout,
     duotoneEnabled,
@@ -504,6 +623,13 @@ export function PhotoPosterTool() {
             onPanChange={setPan}
             pan2={pan2}
             onPan2Change={setPan2}
+            decor={decor}
+            tiles={tiles}
+            onTilesChange={setTiles}
+            dots={dots}
+            onDotsChange={setDots}
+            wordPositions={wordPositions}
+            onWordPositionsChange={setWordPositions}
             zoom={zoom}
             layout={layout}
             duotoneEnabled={duotoneEnabled}
@@ -525,6 +651,20 @@ export function PhotoPosterTool() {
             activeTab={activeTab}
             onClose={() => setActiveTab(null)}
             onApplyStylePreset={handleApplyStylePreset}
+            styleThumbs={styleThumbs}
+            activeStyleId={activeStyleId}
+            decor={decor}
+            onDecorChange={handleDecorChange}
+            tiles={tiles}
+            onTilesEnabledChange={handleTilesEnabledChange}
+            onTileCountChange={handleTileCountChange}
+            onShuffleTiles={handleShuffleTiles}
+            dots={dots}
+            onDotsEnabledChange={handleDotsEnabledChange}
+            onDotCountChange={handleDotCountChange}
+            onShuffleDots={handleShuffleDots}
+            onDotColorChange={handleDotColorChange}
+            onShuffleWords={handleShuffleWords}
             imageUrl={imageUrl}
             uploadError={uploadError}
             onRequestUpload={handleRequestUpload}
@@ -544,7 +684,7 @@ export function PhotoPosterTool() {
             grainIntensity={grainIntensity}
             onGrainIntensityChange={setGrainIntensity}
             caption={caption}
-            onCaptionChange={setCaption}
+            onCaptionChange={handleCaptionChange}
             onRegenerateCaption={handleRegenerateCaption}
             suggestingCaption={suggestingCaption}
             cutouts={cutouts}

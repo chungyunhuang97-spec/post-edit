@@ -3,7 +3,20 @@ import { applyDuotone } from "./duotone";
 import { drawFilmGrain } from "./grain";
 import { drawSubjectHalftone } from "./subjectHalftone";
 import type { SubjectMask } from "./subjectSegmentation";
-import type { BracketOption, CollageLayoutId, Cutout, PosterLayoutId, ShapeOption, StickerStyleId } from "./types";
+import { captionWords, cornerLines, tileSourceRect } from "./decorLayout";
+import { drawSilhouette } from "./silhouette";
+import type {
+  BracketOption,
+  CollageLayoutId,
+  Cutout,
+  DecorState,
+  Dot,
+  PosterLayoutId,
+  ShapeOption,
+  StickerStyleId,
+  Tile,
+  WordPos,
+} from "./types";
 import { buildCaptionTokens } from "./useCutoutLayout";
 import { canvasShapePath } from "./shapes";
 import { drawHalftoneTile, locateInPane, stickerSourceRect, type SourceRect } from "./stickerCrop";
@@ -115,16 +128,21 @@ interface ZoneRect {
  * sit top/bottom (either order), left/right (either order), or -- for the
  * two "overlay" layouts -- the photo fills the entire canvas and the text
  * zone is a centered band that gets painted on top of it afterward. */
-function computeZones(layout: PosterLayoutId, width: number, height: number): { text: ZoneRect; photo: ZoneRect } {
+function computeZones(
+  layout: PosterLayoutId,
+  width: number,
+  height: number,
+  fraction: number | null,
+): { text: ZoneRect; photo: ZoneRect } {
   if (layout === "overlay-h") {
-    const bandH = height * OVERLAY_BAND_FRACTION;
+    const bandH = height * (fraction ?? OVERLAY_BAND_FRACTION);
     return {
       text: { x: 0, y: (height - bandH) / 2, w: width, h: bandH },
       photo: { x: 0, y: 0, w: width, h: height },
     };
   }
   if (layout === "overlay-v") {
-    const bandW = width * OVERLAY_BAND_FRACTION;
+    const bandW = width * (fraction ?? OVERLAY_BAND_FRACTION);
     return {
       text: { x: (width - bandW) / 2, y: 0, w: bandW, h: height },
       photo: { x: 0, y: 0, w: width, h: height },
@@ -135,7 +153,7 @@ function computeZones(layout: PosterLayoutId, width: number, height: number): { 
   const textFirst = layout === "text-top" || layout === "split-left";
 
   if (isRow) {
-    const textW = width * TOP_ZONE_FRACTION;
+    const textW = width * (fraction ?? TOP_ZONE_FRACTION);
     const photoW = width - textW;
     const textX = textFirst ? 0 : photoW;
     const photoX = textFirst ? textW : 0;
@@ -145,7 +163,7 @@ function computeZones(layout: PosterLayoutId, width: number, height: number): { 
     };
   }
 
-  const textH = height * TOP_ZONE_FRACTION;
+  const textH = height * (fraction ?? TOP_ZONE_FRACTION);
   const photoH = height - textH;
   const textY = textFirst ? 0 : photoH;
   const photoY = textFirst ? textH : 0;
@@ -211,6 +229,11 @@ export interface RenderPosterParams {
   /** 0-1 pan within the photo's cover-crop slack, matching the live
    * preview's draggable photo position (0.5 = centered). */
   pan: { x: number; y: number };
+  /** Frame, caption mode and silhouette settings (see DecorState). */
+  decor: DecorState;
+  tiles: Tile[];
+  dots: Dot[];
+  wordPositions: WordPos[];
   /** Second photo's crop position in a duo collage. */
   pan2: { x: number; y: number };
   /** >=1 zoom beyond the minimum cover-fit scale, matching the live
@@ -266,6 +289,10 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
     previewWidthPx,
     pan,
     pan2,
+    decor,
+    tiles,
+    dots,
+    wordPositions,
     zoom,
     layout,
     duotoneEnabled,
@@ -288,9 +315,19 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   // No caption at all -> the photo zone takes the whole canvas, same as the
   // overlay layouts already do, rather than a split that reserves empty
   // space for a caption that isn't there (mirrors PosterPreview.tsx).
-  const { text: textZone, photo: photoZone } = captionEnabled
-    ? computeZones(layout, width, height)
-    : { text: { x: 0, y: 0, w: 0, h: 0 }, photo: { x: 0, y: 0, w: width, h: height } };
+  // The frame is a border around the whole poster: every zone below is laid
+  // out inside this inset content rect, then shifted into place.
+  const inset = (decor.frameInsetPct / 100) * width;
+  const content: ZoneRect = { x: inset, y: inset, w: Math.max(0, width - 2 * inset), h: Math.max(0, height - 2 * inset) };
+  const shift = (z: ZoneRect): ZoneRect => ({ x: z.x + inset, y: z.y + inset, w: z.w, h: z.h });
+  const rawZones = captionEnabled
+    ? computeZones(layout, content.w, content.h, decor.captionFraction)
+    : { text: { x: 0, y: 0, w: 0, h: 0 }, photo: { x: 0, y: 0, w: content.w, h: content.h } };
+  const textZone = captionEnabled ? shift(rawZones.text) : rawZones.text;
+  const photoZone = shift(rawZones.photo);
+  // Only the flowing-paragraph mode writes inside the caption zone; the
+  // corner / scatter modes draw their text in the free overlay layer.
+  const flowText = captionEnabled && decor.captionMode === "flow";
 
   // CSS `%` padding (px-[6%] / py-[7%], both horizontal AND vertical)
   // resolves against the *containing block's width* -- here, the text
@@ -305,8 +342,12 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas 2D context unavailable");
 
-  ctx.fillStyle = captionBgColor;
+  ctx.fillStyle = inset > 0 ? decor.frameColor : captionBgColor;
   ctx.fillRect(0, 0, width, height);
+  if (inset > 0) {
+    ctx.fillStyle = captionBgColor;
+    ctx.fillRect(content.x, content.y, content.w, content.h);
+  }
 
   const isDuo = collageLayoutId !== "single";
 
@@ -339,7 +380,8 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   const bracketOpenW = bracket.open ? ctx.measureText(bracket.open).width : 0;
   const bracketCloseW = bracket.close ? ctx.measureText(bracket.close).width : 0;
 
-  const tokens = buildCaptionTokens(caption, cutouts);
+  const allTokens = buildCaptionTokens(caption, cutouts);
+  const tokens = decor.showCaptionText ? allTokens : allTokens.filter((t) => t.kind === "cutout");
   const availableWidth = Math.max(1, textZone.w - padX * 2);
 
   // --- Layout pass: word-wrap the token stream (mirrors the live
@@ -444,10 +486,29 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
       ctx.restore();
     }
 
+    // With a frame, the seam between two photos is frame-colored too.
+    if (isDuo && inset > 0) {
+      ctx.fillStyle = decor.frameColor;
+      if (collageLayoutId === "duo-h") ctx.fillRect(paneB.x - inset / 2, photoZone.y, inset, photoZone.h);
+      else ctx.fillRect(photoZone.x, paneB.y - inset / 2, photoZone.w, inset);
+    }
+
+    if (decor.silhouetteEnabled && subjectMask) {
+      drawSilhouette(ctx, subjectMask, decor.silhouetteColor, paneA, bottomGeom);
+    }
+
     // Mirrors PosterPreview.tsx's renderSticker: a plain paint swatch would
     // read as a stray colored speck sitting directly on the photo, so every
     // sticker style gives it some kind of printed/peeled-off-the-sheet lift.
-    if (stickerStyleId === "polaroid") {
+    if (stickerStyleId === "flat") {
+      // No white cut line, no shadow: just the shape in its color.
+      cutouts.forEach((cutout) => {
+        const x = photoZone.x + (cutout.xPct / 100) * photoZone.w;
+        const y = photoZone.y + (cutout.yPct / 100) * photoZone.h;
+        ctx.fillStyle = cutout.color ?? stickerColor;
+        ctx.fill(canvasShapePath(shape.id, x, y, squarePx));
+      });
+    } else if (stickerStyleId === "polaroid") {
       const sideMargin = POLAROID_SIDE_FRACTION * squarePx;
       const bottomMargin = POLAROID_BOTTOM_FRACTION * squarePx;
       cutouts.forEach((cutout) => {
@@ -529,7 +590,7 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   // justify-center). Skipped entirely with no caption -- textZone is a
   // zero-size rect in that case, so this would no-op anyway, but skipping
   // it outright avoids setting up canvas state for nothing. ---
-  if (captionEnabled) {
+  if (flowText) {
     ctx.font = `${fontPx}px ${fontFamily}`;
     ctx.fillStyle = textColor;
     ctx.textBaseline = "alphabetic";
@@ -590,6 +651,77 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
     });
 
     ctx.restore();
+  }
+
+  // --- Free-position overlay layer: small photo tiles, solid dots, and the
+  // corner / scatter caption modes. All positions are % of the content
+  // rect, matching the live preview's overlay container. ---
+  const px = (pct: number) => content.x + (pct / 100) * content.w;
+  const py = (pct: number) => content.y + (pct / 100) * content.h;
+
+  if (decor.tilesEnabled) {
+    tiles.forEach((tile, i) => {
+      const useSecond = tile.photo === 1 && photoSource2 && img2;
+      const src = useSecond ? photoSource2! : photoSource;
+      const natW = useSecond ? img2!.naturalWidth : img.naturalWidth;
+      const natH = useSecond ? img2!.naturalHeight : img.naturalHeight;
+      const bmpW = useSecond ? srcW2 : srcW;
+      const bmpH = useSecond ? srcH2 : srcH;
+      const r = tileSourceRect(tile, natW, natH);
+      const kx = bmpW / natW;
+      const ky = bmpH / natH;
+      const x = px(tile.xPct);
+      const y = py(tile.yPct);
+      const w = (tile.wPct / 100) * content.w;
+      const h = w / tile.aspect;
+      ctx.drawImage(src, r.sx * kx, r.sy * ky, r.sw * kx, r.sh * ky, x, y, w, h);
+      if (decor.tileNumbered) {
+        ctx.font = `${fontPx * 0.7}px ${fontFamily}`;
+        ctx.fillStyle = textColor;
+        ctx.textAlign = "left";
+        ctx.textBaseline = "alphabetic";
+        ctx.fillText(`(${i + 1})`, x, y - 5 * scale);
+      }
+    });
+  }
+
+  if (decor.dotsEnabled) {
+    dots.forEach((dot) => {
+      ctx.fillStyle = dot.color;
+      ctx.beginPath();
+      ctx.arc(px(dot.xPct), py(dot.yPct), (decor.dotSizePx * scale) / 2, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+
+  if (captionEnabled && decor.showCaptionText && decor.captionMode === "scatter") {
+    ctx.font = `${fontPx}px ${fontFamily}`;
+    ctx.fillStyle = textColor;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+    captionWords(caption).forEach((word, i) => {
+      const pos = wordPositions[i];
+      if (!pos) return;
+      const cx = px(pos.xPct);
+      const cy = py(pos.yPct);
+      ctx.fillText(word, cx, cy + fontPx * 0.35);
+      ctx.beginPath();
+      ctx.arc(cx, cy - fontPx * 0.95, 2 * scale, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.textAlign = "left";
+  }
+
+  if (captionEnabled && decor.showCaptionText && decor.captionMode === "corner") {
+    const size = fontPx * 0.85;
+    ctx.font = `${size}px ${fontFamily}`;
+    ctx.fillStyle = textColor;
+    ctx.textAlign = "right";
+    ctx.textBaseline = "alphabetic";
+    cornerLines(caption).forEach((line, i) => {
+      ctx.fillText(line, content.x + content.w * 0.95, content.y + content.h * 0.04 + size + i * size * 2.6);
+    });
+    ctx.textAlign = "left";
   }
 
   // Last, so grain sits on top of literally everything -- photo, cutouts,

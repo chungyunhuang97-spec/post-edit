@@ -1,16 +1,21 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { BRACKET_OPTIONS, FONT_OPTIONS, LAYOUT_OPTIONS, SHAPE_OPTIONS, STICKER_STYLE_OPTIONS, STYLE_PRESETS } from "./constants";
+import { BRACKET_OPTIONS, FONT_OPTIONS, LAYOUT_OPTIONS, SHAPE_OPTIONS, STICKER_STYLE_OPTIONS } from "./constants";
+import { STYLE_PRESETS } from "./stylePresets";
 import type {
   BracketStyleId,
+  CaptionMode,
   CollageLayoutId,
   Cutout,
+  DecorState,
+  Dot,
   FontOptionId,
   PosterLayoutId,
   ShapeId,
   StickerStyleId,
   StylePreset,
+  Tile,
 } from "./types";
 
 export type TabId = "layout" | "style" | "effects" | "caption" | "shapes" | "text";
@@ -212,25 +217,6 @@ function Segmented<T extends string>({
   );
 }
 
-/** A tiny two-tone swatch previewing what a style preset will actually
- * change -- the caption-band color as the ground, the photo/sticker color
- * as a shape chip clipped to the preset's own cutout shape -- so the list
- * reads as a gallery of looks rather than a wall of Chinese labels. */
-function StylePresetSwatch({ preset }: { preset: StylePreset }) {
-  const shape = SHAPE_OPTIONS.find((s) => s.id === preset.shapeId);
-  return (
-    <span className="flex h-10 w-12 shrink-0 overflow-hidden rounded-md border border-line">
-      <span
-        className="flex flex-1 items-center justify-center"
-        style={{ backgroundColor: preset.captionBgColor }}
-      >
-        <span className="h-4 w-4" style={{ backgroundColor: preset.textColor, clipPath: shape?.clipPath }} />
-      </span>
-      <span className="w-3" style={{ backgroundColor: preset.textColor }} />
-    </span>
-  );
-}
-
 /** Small two-block diagram showing which arrangement a layout option is --
  * the accent block stands in for the caption zone, the dim block for the
  * photo zone, in the actual relative position/orientation they'll render. */
@@ -307,6 +293,22 @@ export interface ToolPanelProps {
   activeTab: TabId;
   onClose: () => void;
   onApplyStylePreset: (preset: StylePreset) => void;
+  /** Thumbnail data URLs by style id (rendered lazily; may be incomplete). */
+  styleThumbs: Record<string, string>;
+  activeStyleId: string | null;
+
+  decor: DecorState;
+  onDecorChange: (patch: Partial<DecorState>) => void;
+  tiles: Tile[];
+  onTilesEnabledChange: (enabled: boolean) => void;
+  onTileCountChange: (n: number) => void;
+  onShuffleTiles: () => void;
+  dots: Dot[];
+  onDotsEnabledChange: (enabled: boolean) => void;
+  onDotCountChange: (n: number) => void;
+  onShuffleDots: () => void;
+  onDotColorChange: (id: string, color: string) => void;
+  onShuffleWords: () => void;
 
   imageUrl: string | null;
   uploadError: string | null;
@@ -393,6 +395,20 @@ export function ToolPanel(props: ToolPanelProps) {
     activeTab,
     onClose,
     onApplyStylePreset,
+    styleThumbs,
+    activeStyleId,
+    decor,
+    onDecorChange,
+    tiles,
+    onTilesEnabledChange,
+    onTileCountChange,
+    onShuffleTiles,
+    dots,
+    onDotsEnabledChange,
+    onDotCountChange,
+    onShuffleDots,
+    onDotColorChange,
+    onShuffleWords,
     imageUrl,
     uploadError,
     onRequestUpload,
@@ -458,6 +474,7 @@ export function ToolPanel(props: ToolPanelProps) {
   } = props;
 
   const isDuo = collageLayoutId !== "single";
+  const captionFractionValue = decor.captionFraction ?? (layout === "overlay-h" || layout === "overlay-v" ? 0.34 : 0.5);
 
   return (
     <div className="flex h-full min-h-0 flex-col text-sm">
@@ -540,7 +557,7 @@ export function ToolPanel(props: ToolPanelProps) {
               <SectionTitle>文案位置</SectionTitle>
               {captionEnabled ? (
                 <div className="grid grid-cols-2 gap-2">
-                  {(isDuo ? LAYOUT_OPTIONS.filter((o) => o.id === "overlay-h" || o.id === "overlay-v") : LAYOUT_OPTIONS).map((opt) => (
+                  {LAYOUT_OPTIONS.map((opt) => (
                     <button
                       key={opt.id}
                       type="button"
@@ -557,30 +574,81 @@ export function ToolPanel(props: ToolPanelProps) {
               ) : (
                 <p className="text-[11px] text-ink-faint">目前沒有顯示文案，照片鋪滿整張畫布。到「文案」分頁可以開啟。</p>
               )}
+              {captionEnabled && (
+                <label className="flex flex-col gap-1">
+                  <span className="flex justify-between text-xs text-ink-muted">
+                    <span>文案區塊大小</span>
+                    <span>{Math.round(captionFractionValue * 100)}%</span>
+                  </span>
+                  <input
+                    type="range"
+                    min={20}
+                    max={100}
+                    step={5}
+                    value={Math.round(captionFractionValue * 100)}
+                    onChange={(e) => onDecorChange({ captionFraction: Number(e.target.value) / 100 })}
+                  />
+                  <span className="text-[11px] text-ink-faint">拉到 100% 就是整張都是紙（照片只剩小圖）</span>
+                </label>
+              )}
+            </section>
+
+            <section className="flex flex-col gap-3">
+              <SectionTitle>外框</SectionTitle>
+              <label className="flex flex-col gap-1">
+                <span className="flex justify-between text-xs text-ink-muted">
+                  <span>外框粗細</span>
+                  <span>{decor.frameInsetPct === 0 ? "無" : `${decor.frameInsetPct}%`}</span>
+                </span>
+                <input
+                  type="range"
+                  min={0}
+                  max={10}
+                  step={0.5}
+                  value={decor.frameInsetPct}
+                  onChange={(e) => onDecorChange({ frameInsetPct: Number(e.target.value) })}
+                />
+              </label>
+              {decor.frameInsetPct > 0 && (
+                <ColorField label="外框顏色" value={decor.frameColor} onChange={(hex) => onDecorChange({ frameColor: hex })} />
+              )}
             </section>
           </div>
         )}
 
         {activeTab === "style" && (
           <div className="flex flex-col gap-3">
-            <p className="text-xs text-ink-faint">
-              一鍵套用一整組風格（字體、圖形、配色、顆粒／雙色調都會一起換），套用後仍可到其他分頁微調。
-            </p>
-            <div className="flex flex-col gap-2">
-              {STYLE_PRESETS.map((sp) => (
-                <button
-                  key={sp.id}
-                  type="button"
-                  onClick={() => onApplyStylePreset(sp)}
-                  className="flex items-center gap-3 rounded-md border border-line bg-surface-2 px-3 py-2 text-left transition hover:border-accent hover:accent-shadow"
-                >
-                  <StylePresetSwatch preset={sp} />
-                  <span className="flex flex-col gap-0.5">
-                    <span className="text-xs font-medium text-ink">{sp.label}</span>
-                    <span className="text-[11px] text-ink-faint">{sp.sublabel}</span>
-                  </span>
-                </button>
-              ))}
+            <p className="text-xs text-ink-faint">左右滑動挑選，一鍵套用整組風格，套用後仍可微調。</p>
+            <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2">
+              {STYLE_PRESETS.map((sp) => {
+                const thumb = styleThumbs[sp.id];
+                const active = activeStyleId === sp.id;
+                return (
+                  <button
+                    key={sp.id}
+                    type="button"
+                    onClick={() => onApplyStylePreset(sp)}
+                    className={`flex w-[104px] shrink-0 snap-start flex-col gap-1.5 text-left transition ${active ? "" : "opacity-90 hover:opacity-100"}`}
+                  >
+                    <span
+                      className={`block aspect-[4/5] w-full overflow-hidden rounded-md border-2 bg-surface-2 ${
+                        active ? "border-accent" : "border-line"
+                      }`}
+                    >
+                      {thumb ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={thumb} alt={sp.label} className="h-full w-full object-cover" draggable={false} />
+                      ) : (
+                        <span className="flex h-full w-full items-center justify-center text-[10px] text-ink-faint">載入中…</span>
+                      )}
+                    </span>
+                    <span className="flex flex-col gap-0.5">
+                      <span className={`text-xs font-medium ${active ? "text-accent" : "text-ink"}`}>{sp.label}</span>
+                      <span className="text-[10px] leading-tight text-ink-faint">{sp.sublabel}</span>
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
@@ -659,6 +727,41 @@ export function ToolPanel(props: ToolPanelProps) {
 
             {captionEnabled && (
               <>
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs text-ink-muted">文字排法</span>
+                  <Segmented<CaptionMode>
+                    options={[
+                      { id: "flow", label: "一般排列" },
+                      { id: "corner", label: "角落小字" },
+                      { id: "scatter", label: "散落單字" },
+                    ]}
+                    value={decor.captionMode}
+                    onChange={(id) => onDecorChange({ captionMode: id })}
+                  />
+                  {decor.captionMode === "scatter" && (
+                    <button
+                      type="button"
+                      onClick={onShuffleWords}
+                      className="rounded-md border border-line bg-surface-2 px-3 py-1.5 text-xs font-medium text-ink-muted hover:text-ink"
+                    >
+                      重新散落（也可以直接在畫布上拖曳單字）
+                    </button>
+                  )}
+                </div>
+
+                <label className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-muted">
+                  <span className="flex flex-col gap-0.5">
+                    <span className="font-medium text-ink">顯示文字</span>
+                    <span className="text-ink-faint">關閉後只留下色塊與圖形窗口，不顯示任何字</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={decor.showCaptionText}
+                    onChange={(e) => onDecorChange({ showCaptionText: e.target.checked })}
+                    className="h-4 w-4 shrink-0 accent-accent"
+                  />
+                </label>
+
                 <div className="flex items-center justify-end">
                   <button
                     type="button"
@@ -706,6 +809,7 @@ export function ToolPanel(props: ToolPanelProps) {
 
         {activeTab === "shapes" && (
           <div className="flex flex-col gap-4">
+            <SectionTitle>形狀貼紙</SectionTitle>
             <label className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-muted">
               <span className="flex flex-col gap-0.5">
                 <span className="font-medium text-ink">顯示圖形</span>
@@ -742,7 +846,7 @@ export function ToolPanel(props: ToolPanelProps) {
               <input
                 type="range"
                 min={0.5}
-                max={2}
+                max={4}
                 step={0.1}
                 value={scaleMultiplier}
                 onChange={(e) => onScaleChange(Number(e.target.value))}
@@ -832,6 +936,135 @@ export function ToolPanel(props: ToolPanelProps) {
             </div>
               </>
             )}
+
+            <SectionTitle>小照片</SectionTitle>
+            <label className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-muted">
+              <span className="flex flex-col gap-0.5">
+                <span className="font-medium text-ink">顯示小照片</span>
+                <span className="text-ink-faint">把照片的不同局部裁成幾張小照片，擺在畫面上（可拖曳）</span>
+              </span>
+              <input
+                type="checkbox"
+                checked={decor.tilesEnabled}
+                onChange={(e) => onTilesEnabledChange(e.target.checked)}
+                className="h-4 w-4 shrink-0 accent-accent"
+              />
+            </label>
+            {decor.tilesEnabled && (
+              <>
+                <label className="flex flex-col gap-1">
+                  <span className="flex justify-between text-xs text-ink-muted">
+                    <span>小照片數量</span>
+                    <span>{tiles.length}</span>
+                  </span>
+                  <input type="range" min={1} max={8} value={tiles.length} onChange={(e) => onTileCountChange(Number(e.target.value))} />
+                </label>
+                <label className="flex items-center justify-between gap-3 text-xs text-ink-muted">
+                  <span>顯示編號 (1)(2)…</span>
+                  <input
+                    type="checkbox"
+                    checked={decor.tileNumbered}
+                    onChange={(e) => onDecorChange({ tileNumbered: e.target.checked })}
+                    className="h-4 w-4 shrink-0 accent-accent"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={onShuffleTiles}
+                  className="rounded-md border border-line bg-surface-2 px-3 py-1.5 text-xs font-medium text-ink-muted hover:text-ink"
+                >
+                  重新排列小照片
+                </button>
+              </>
+            )}
+
+            <SectionTitle>圓點</SectionTitle>
+            <label className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-muted">
+              <span className="flex flex-col gap-0.5">
+                <span className="font-medium text-ink">顯示圓點</span>
+                <span className="text-ink-faint">散落在畫面上的純色圓點（可拖曳）</span>
+              </span>
+              <input
+                type="checkbox"
+                checked={decor.dotsEnabled}
+                onChange={(e) => onDotsEnabledChange(e.target.checked)}
+                className="h-4 w-4 shrink-0 accent-accent"
+              />
+            </label>
+            {decor.dotsEnabled && (
+              <>
+                <label className="flex flex-col gap-1">
+                  <span className="flex justify-between text-xs text-ink-muted">
+                    <span>圓點數量</span>
+                    <span>{dots.length}</span>
+                  </span>
+                  <input type="range" min={1} max={12} value={dots.length} onChange={(e) => onDotCountChange(Number(e.target.value))} />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="flex justify-between text-xs text-ink-muted">
+                    <span>圓點大小</span>
+                    <span>{decor.dotSizePx}px</span>
+                  </span>
+                  <input
+                    type="range"
+                    min={6}
+                    max={48}
+                    value={decor.dotSizePx}
+                    onChange={(e) => onDecorChange({ dotSizePx: Number(e.target.value) })}
+                  />
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {dots.map((dot, i) => (
+                    <label
+                      key={dot.id}
+                      className="relative h-8 w-8 cursor-pointer rounded-full border border-line"
+                      style={{ backgroundColor: dot.color }}
+                      title={`第 ${i + 1} 個圓點的顏色`}
+                    >
+                      <input
+                        type="color"
+                        value={dot.color}
+                        onChange={(e) => onDotColorChange(dot.id, e.target.value)}
+                        className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                      />
+                    </label>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={onShuffleDots}
+                  className="rounded-md border border-line bg-surface-2 px-3 py-1.5 text-xs font-medium text-ink-muted hover:text-ink"
+                >
+                  重新排列圓點
+                </button>
+              </>
+            )}
+
+            <SectionTitle>主體剪影</SectionTitle>
+            <div className="flex flex-col gap-2 rounded-md border border-line bg-surface-2 px-3 py-2">
+              <label className="flex items-center justify-between gap-3 text-xs text-ink-muted">
+                <span className="flex flex-col gap-0.5">
+                  <span className="font-medium text-ink">主體填成純色剪影</span>
+                  <span className="text-ink-faint">偵測第一張照片裡的人物/動物，把輪廓填成單一顏色</span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={decor.silhouetteEnabled}
+                  disabled={!imageUrl}
+                  onChange={(e) => onDecorChange({ silhouetteEnabled: e.target.checked })}
+                  className="h-4 w-4 shrink-0 accent-accent disabled:opacity-40"
+                />
+              </label>
+              {decor.silhouetteEnabled && (
+                <ColorField label="剪影顏色" value={decor.silhouetteColor} onChange={(hex) => onDecorChange({ silhouetteColor: hex })} />
+              )}
+              {decor.silhouetteEnabled && subjectHalftoneStatus === "loading" && (
+                <p className="text-[11px] text-ink-faint">偵測中，第一次使用需要下載辨識模型…</p>
+              )}
+              {decor.silhouetteEnabled && subjectHalftoneStatus === "unavailable" && (
+                <p className="text-[11px] text-ink-faint">這張照片沒有偵測到可辨識的主體，暫時不會顯示效果。</p>
+              )}
+            </div>
           </div>
         )}
 

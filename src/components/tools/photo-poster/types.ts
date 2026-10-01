@@ -106,7 +106,7 @@ export interface CollageOption {
 
 /** How each cutout sticker is rendered onto the photo -- orthogonal to
  * ShapeId (the silhouette) and color (the fill). */
-export type StickerStyleId = "die-cut" | "halftone" | "polaroid";
+export type StickerStyleId = "die-cut" | "halftone" | "polaroid" | "flat";
 
 export interface StickerStyleOption {
   id: StickerStyleId;
@@ -120,14 +120,12 @@ export interface StickerStyleOption {
  * poster can look genuinely different from one click instead of always
  * drifting back to the same default look. */
 export type StylePresetId =
-  | "classic"
   | "film-dump"
   | "sticker-dump"
-  | "cinematic-flash"
-  | "analog-diary"
-  | "editorial-cutout"
-  | "subject-print"
-  | "acid-blocks";
+  | "cutout-block"
+  | "journal-dots"
+  | "airy-words"
+  | "silhouette-frame";
 
 export interface StylePreset {
   id: StylePresetId;
@@ -143,17 +141,104 @@ export interface StylePreset {
   baseFontSizePx: number;
   lineHeightMultiplier: number;
   letterSpacingPx: number;
-  duotoneEnabled: boolean;
   grainEnabled: boolean;
   grainIntensity: number;
   cutoutCount: number;
-  /** Renders the detected subject as a halftone silhouette behind the
-   * caption instead of a plain background (see subjectSegmentation.ts).
-   * Defaults to false when omitted -- most presets don't touch it, since it
-   * triggers a one-time ML model download the first time it's turned on. */
-  subjectHalftoneEnabled?: boolean;
+  /** Sticker style for the cutout shapes (default: die-cut). */
+  stickerStyleId?: StickerStyleId;
+  /** Whether the cutout shapes show at all (default: true). */
+  shapesEnabled?: boolean;
+  /** Whether the caption shows at all (default: true). */
+  captionEnabled?: boolean;
+  /** Frame, caption mode, silhouette... (merged over DEFAULT_DECOR). */
+  decor?: Partial<DecorState>;
+  /** Free-placed small photos, solid dots and scattered word anchors, each
+   * generated inside a region given in % of the poster. */
+  tiles?: { count: number; region: { x0: number; y0: number; x1: number; y1: number }; aspects?: number[] };
+  dots?: { count: number; region: { x0: number; y0: number; x1: number; y1: number }; palette: string[] };
+  words?: { region: { x0: number; y0: number; x1: number; y1: number } };
   /** Cycling per-cutout color override (candy-sticker look). Omitted means
    * every cutout inherits the preset's captionBgColor as the shared sticker
    * color, as plain shapes cut from one sheet. */
   palette?: string[];
 }
+
+/** How the caption text is laid out: `flow` is the original centered
+ * wrapping paragraph (with inline cutout thumbnails); `corner` stacks short
+ * right-aligned lines in the top-right corner; `scatter` places every word
+ * on its own, each marked with a small dot. The latter two are drawn in the
+ * free-position overlay layer (see DecorState), not inside the caption zone. */
+export type CaptionMode = "flow" | "corner" | "scatter";
+
+/** A small photo placed freely on the poster (a crop of one of the
+ * uploaded photos -- a contact-sheet / journal-page look). Position and
+ * width are percentages of the poster's content area, so it survives any
+ * canvas size; (u, v, s) pick which part of the source photo it shows, in
+ * the photo's own natural coordinates, independent of the layout. */
+export interface Tile {
+  id: string;
+  /** 0 = first photo, 1 = second (only meaningful with two photos). */
+  photo: 0 | 1;
+  /** Center of the crop within the source photo, 0-1. */
+  u: number;
+  v: number;
+  /** Width of the crop as a fraction of the source photo's width. */
+  s: number;
+  xPct: number;
+  yPct: number;
+  wPct: number;
+  /** width / height */
+  aspect: number;
+}
+
+/** A solid decorative dot (the colored-sticker-dots look). */
+export interface Dot {
+  id: string;
+  xPct: number;
+  yPct: number;
+  color: string;
+}
+
+/** Center of one scattered caption word, % of the poster's content area. */
+export interface WordPos {
+  xPct: number;
+  yPct: number;
+}
+
+/** Everything the newer paper/journal/silhouette looks need beyond the
+ * basic photo + caption-zone + cutout model. All of it has a neutral
+ * default (see DEFAULT_DECOR) under which the poster renders exactly as it
+ * did before these options existed. */
+export interface DecorState {
+  /** Border around the whole poster, as a % of its width (0 = none). */
+  frameInsetPct: number;
+  frameColor: string;
+  /** Caption zone size as a fraction of the poster (null = the layout's
+   * own default: 0.5 for splits, 0.34 for overlay bands). */
+  captionFraction: number | null;
+  /** Hides the words but keeps their layout space and the inline photo
+   * windows, so a flat color block can carry shaped photo cut-outs only. */
+  showCaptionText: boolean;
+  captionMode: CaptionMode;
+  tilesEnabled: boolean;
+  tileNumbered: boolean;
+  dotsEnabled: boolean;
+  dotSizePx: number;
+  /** Paints the detected subject of the first photo as a flat color shape. */
+  silhouetteEnabled: boolean;
+  silhouetteColor: string;
+}
+
+export const DEFAULT_DECOR: DecorState = {
+  frameInsetPct: 0,
+  frameColor: "#c8102e",
+  captionFraction: null,
+  showCaptionText: true,
+  captionMode: "flow",
+  tilesEnabled: false,
+  tileNumbered: false,
+  dotsEnabled: false,
+  dotSizePx: 16,
+  silhouetteEnabled: false,
+  silhouetteColor: "#c8102e",
+};
