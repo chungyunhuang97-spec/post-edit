@@ -548,7 +548,7 @@ export function ToolPanel(props: ToolPanelProps) {
           type="button"
           onClick={onClose}
           aria-label="返回主選單"
-          className="flex h-8 items-center gap-0.5 rounded-full pl-1 pr-3 text-xs font-medium text-ink-muted transition hover:bg-surface-2 hover:text-ink"
+          className="flex h-8 md:hidden items-center gap-0.5 rounded-full pl-1 pr-3 text-xs font-medium text-ink-muted transition hover:bg-surface-2 hover:text-ink"
         >
           <Icon>
             <path d="M15 6l-6 6 6 6" />
