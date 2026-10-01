@@ -20,7 +20,7 @@ import type {
   Tile,
 } from "./types";
 
-export type TabId = "layout" | "style" | "effects" | "caption" | "text";
+export type TabId = "layout" | "style" | "caption";
 
 // 版型 leads -- it's where the photos themselves (how many, which way they
 // split the canvas, and the upload slots) live, and that's the first
@@ -46,27 +46,10 @@ const TOOLS: { id: TabId; label: string; title: string; icon: ReactNode }[] = [
     icon: <path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8L19 16z" />,
   },
   {
-    id: "effects",
-    label: "效果",
-    title: "效果・顆粒",
-    icon: (
-      <>
-        <circle cx="12" cy="12" r="9" />
-        <path d="M12 3v18M12 3a9 9 0 010 18" fill="currentColor" />
-      </>
-    ),
-  },
-  {
     id: "caption",
     label: "文案",
-    title: "文案內容",
+    title: "文案・文字",
     icon: <path d="M4 5h16v11H9l-5 4V5z" />,
-  },
-  {
-    id: "text",
-    label: "文字",
-    title: "文字樣式",
-    icon: <path d="M4 20l5-14 5 14M6 15h6M16 20l3-8 3 8M17.2 17.5h3.6" />,
   },
 ];
 
@@ -365,6 +348,7 @@ export interface ToolPanelProps {
   onTilesEnabledChange: (enabled: boolean) => void;
   onTileCountChange: (n: number) => void;
   onTileZoomChange: (k: number) => void;
+  onTileChange: (id: string, patch: Partial<Tile>) => void;
   onShuffleTiles: () => void;
   dots: Dot[];
   onDotsEnabledChange: (enabled: boolean) => void;
@@ -453,9 +437,7 @@ export interface ToolPanelProps {
 const TAB_TITLES: Record<TabId, string> = {
   layout: "版型・照片",
   style: "風格",
-  effects: "效果",
-  caption: "文案",
-  text: "文字",
+  caption: "文案・文字",
 };
 
 /** The adjustment panel for whichever tool is active -- rendered under the
@@ -473,6 +455,7 @@ export function ToolPanel(props: ToolPanelProps) {
     onTilesEnabledChange,
     onTileCountChange,
     onTileZoomChange,
+    onTileChange,
     onShuffleTiles,
     dots,
     onDotsEnabledChange,
@@ -647,6 +630,13 @@ export function ToolPanel(props: ToolPanelProps) {
                 <Desc>{isDuo ? "兩張照片各自縮放，也可以在畫布上各自拖曳調整位置" : "直接拖曳上方預覽的照片可調整顯示位置"}</Desc>
               )}
             </section>
+            {features.captionBg && !linkedColor && captionEnabled && (
+              <section className="flex flex-col gap-3 border-t border-line pt-3">
+                <SectionTitle>底色</SectionTitle>
+                <ColorField label="文案區塊底色" value={captionBgColor} onChange={onCaptionBgColorChange} />
+                <Desc>文案區塊（文字所在的色塊）的顏色</Desc>
+              </section>
+            )}
           </div>
         )}
 
@@ -957,7 +947,7 @@ export function ToolPanel(props: ToolPanelProps) {
                     <span className="text-[11px] text-ink-faint">小照片會出現綠色外框，拖曳它可以移動裡面顯示的照片區塊</span>
                   )}
                 </div>
-                <label className="grid grid-cols-[5.5rem_1fr_3rem] items-center gap-2 text-xs text-ink-muted"><span>小照片放大</span><input
+                <label className="grid grid-cols-[5.5rem_1fr_3rem] items-center gap-2 text-xs text-ink-muted"><span>全部放大</span><input
                     type="range"
                     min={0.6}
                     max={4}
@@ -965,6 +955,33 @@ export function ToolPanel(props: ToolPanelProps) {
                     value={tileZoom}
                     onChange={(e) => onTileZoomChange(Number(e.target.value))}
                   /><span className="text-right tabular-nums">{tileZoom.toFixed(1)}x</span></label>
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs text-ink-muted">個別調整</span>
+                  {tiles.map((t, i) => {
+                    const z = Math.min(4, Math.max(0.6, 0.5 / t.s));
+                    return (
+                      <div key={t.id} className="flex flex-col gap-1.5 rounded-md border border-line bg-surface-2 px-3 py-2">
+                        <span className="text-[11px] font-medium text-ink">小照片 ({i + 1})</span>
+                        <label className="grid grid-cols-[3.5rem_1fr_3rem] items-center gap-2 text-xs text-ink-muted"><span>大小</span><input
+                            type="range"
+                            min={8}
+                            max={50}
+                            step={1}
+                            value={Math.round(t.wPct)}
+                            onChange={(e) => onTileChange(t.id, { wPct: Number(e.target.value) })}
+                          /><span className="text-right tabular-nums">{Math.round(t.wPct)}%</span></label>
+                        <label className="grid grid-cols-[3.5rem_1fr_3rem] items-center gap-2 text-xs text-ink-muted"><span>放大</span><input
+                            type="range"
+                            min={0.6}
+                            max={4}
+                            step={0.1}
+                            value={z}
+                            onChange={(e) => onTileChange(t.id, { s: Math.min(0.95, 0.5 / Number(e.target.value)) })}
+                          /><span className="text-right tabular-nums">{z.toFixed(1)}x</span></label>
+                      </div>
+                    );
+                  })}
+                </div>
                 <label className="flex items-center justify-between gap-3 text-xs text-ink-muted">
                   <span>顯示編號 (1)(2)…</span>
                   <input
@@ -1120,23 +1137,10 @@ export function ToolPanel(props: ToolPanelProps) {
               </div>
             )}
 
-            {currentStyle && (
-              <label className="flex items-center justify-between gap-3 border-t border-line pt-3 text-xs text-ink-muted">
-                <span>顯示所有功能（進階）</span>
-                <input
-                  type="checkbox"
-                  checked={showAllFeatures}
-                  onChange={(e) => onShowAllFeaturesChange(e.target.checked)}
-                  className="h-4 w-4 shrink-0 accent-accent"
-                />
-              </label>
-            )}
-          </div>
-        )}
-
-        {activeTab === "effects" && (
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2 rounded-md border border-line bg-surface-2 px-3 py-2">
+            {(!currentStyle || !pickerOpen) && (
+              <section className="flex flex-col gap-3 border-t border-line pt-3">
+                <SectionTitle>顆粒質感</SectionTitle>
+<div className="flex flex-col gap-2 rounded-md border border-line bg-surface-2 px-3 py-2">
               <label className="flex items-center justify-between gap-3 text-xs text-ink-muted">
                 <span className="flex flex-col gap-0.5">
                   <span className="font-medium text-ink">顆粒質感</span>
@@ -1160,6 +1164,20 @@ export function ToolPanel(props: ToolPanelProps) {
                   /><span className="text-right tabular-nums">{grainIntensity}%</span></label>
               )}
             </div>
+              </section>
+            )}
+
+            {currentStyle && (
+              <label className="flex items-center justify-between gap-3 border-t border-line pt-3 text-xs text-ink-muted">
+                <span>顯示所有功能（進階）</span>
+                <input
+                  type="checkbox"
+                  checked={showAllFeatures}
+                  onChange={(e) => onShowAllFeaturesChange(e.target.checked)}
+                  className="h-4 w-4 shrink-0 accent-accent"
+                />
+              </label>
+            )}
           </div>
         )}
 
@@ -1256,19 +1274,8 @@ export function ToolPanel(props: ToolPanelProps) {
                   className={`w-full resize-none ${fieldClass}`}
                 />
 
-                {features.captionBg && !linkedColor && (
-                  <ColorField label="文案底色" value={captionBgColor} onChange={onCaptionBgColorChange} />
-                )}
-              </>
-            )}
-          </div>
-        )}
-
-        {activeTab === "text" && (
-          <div className="flex flex-col gap-3">
-            {!captionEnabled && (
-              <p className="text-xs text-ink-faint">文案區塊目前是關閉的（在「文案」分頁開啟），這裡的設定暫時不會顯示在海報上。</p>
-            )}
+                <section className="flex flex-col gap-3 border-t border-line pt-3">
+                  <SectionTitle>文字樣式</SectionTitle>
             <div className={`grid gap-3 ${showBrackets ? "grid-cols-2" : "grid-cols-1"}`}>
               <label className="flex flex-col gap-1 text-xs text-ink-muted">
                 字體風格
@@ -1328,8 +1335,12 @@ export function ToolPanel(props: ToolPanelProps) {
             </>
             )}
             <ColorField label="文字顏色" value={textColor} onChange={onTextColorChange} />
+                </section>
+              </>
+            )}
           </div>
         )}
+
       </div>
     </div>
   );

@@ -414,6 +414,10 @@ export function PhotoPosterTool() {
     (k: number) => setTiles((prev) => prev.map((t) => ({ ...t, s: Math.min(0.95, 0.5 / k) }))),
     [],
   );
+  const handleTileChange = useCallback(
+    (id: string, patch: Partial<Tile>) => setTiles((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t))),
+    [],
+  );
   const handleShuffleTiles = useCallback(
     () => setTiles((prev) => makeTiles(prev.length, TILE_REGION, zoneAspect, photoCount)),
      
@@ -665,9 +669,7 @@ export function PhotoPosterTool() {
   const visibleTabs: TabId[] = [
     "layout",
     "style",
-    "effects",
     "caption",
-    "text",
   ];
 
   // Two-photo layouts need both slots filled; a missing one would export a
@@ -839,6 +841,7 @@ export function PhotoPosterTool() {
             onTilesEnabledChange={handleTilesEnabledChange}
             onTileCountChange={handleTileCountChange}
             onTileZoomChange={handleTileZoomChange}
+            onTileChange={handleTileChange}
             onShuffleTiles={handleShuffleTiles}
             dots={dots}
             onDotsEnabledChange={handleDotsEnabledChange}
