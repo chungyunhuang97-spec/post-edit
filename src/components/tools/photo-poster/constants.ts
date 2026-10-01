@@ -72,10 +72,10 @@ export const STICKER_STYLE_OPTIONS: StickerStyleOption[] = [
 ];
 
 export const LAYOUT_OPTIONS: LayoutOption[] = [
-  { id: "text-top", label: "文字在上" },
-  { id: "photo-top", label: "照片在上" },
-  { id: "split-left", label: "左右：文字在左" },
-  { id: "split-right", label: "左右：文字在右" },
+  { id: "text-top", label: "文字在上方" },
+  { id: "photo-top", label: "文字在下方" },
+  { id: "split-left", label: "文字在左側" },
+  { id: "split-right", label: "文字在右側" },
   { id: "overlay-h", label: "文字橫跨中間" },
   { id: "overlay-v", label: "文字直跨中間" },
 ];

@@ -777,18 +777,29 @@ export function PosterPreview({
       onTilesChange(tiles.map((tile) => (tile.id === d.id ? { ...tile, u, v } : tile)));
       return;
     }
+    // Free items can go anywhere on the poster: the limits are the whole
+    // content box, expressed in % of the (possibly much smaller) caption zone.
+    const minX = (-zoneRect.x / zoneRect.w) * 100;
+    const maxX = ((contentSize.w - zoneRect.x) / zoneRect.w) * 100;
+    const minY = (-zoneRect.y / zoneRect.h) * 100;
+    const maxY = ((contentSize.h - zoneRect.y) / zoneRect.h) * 100;
+    const within = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
     if (d.kind === "tile") {
       onTilesChange(
         tiles.map((t) =>
           t.id === d.id
-            ? { ...t, xPct: clampPct(x, t.wPct), yPct: clampPct(y, ((t.wPct / t.aspect) * zoneRect.w) / zoneRect.h) }
+            ? {
+                ...t,
+                xPct: within(x, minX, maxX - t.wPct),
+                yPct: within(y, minY, maxY - ((t.wPct / t.aspect) * zoneRect.w) / zoneRect.h),
+              }
             : t,
         ),
       );
     } else if (d.kind === "dot") {
-      onDotsChange(dots.map((dot) => (dot.id === d.id ? { ...dot, xPct: Math.min(140, Math.max(-40, x)), yPct: Math.min(140, Math.max(-40, y)) } : dot)));
+      onDotsChange(dots.map((dot) => (dot.id === d.id ? { ...dot, xPct: within(x, minX, maxX), yPct: within(y, minY, maxY) } : dot)));
     } else {
-      onWordPositionsChange(wordPositions.map((w, i) => (i === d.index ? { xPct: Math.min(120, Math.max(-20, x)), yPct: Math.min(120, Math.max(-20, y)) } : w)));
+      onWordPositionsChange(wordPositions.map((w, i) => (i === d.index ? { xPct: within(x, minX, maxX), yPct: within(y, minY, maxY) } : w)));
     }
   }
 

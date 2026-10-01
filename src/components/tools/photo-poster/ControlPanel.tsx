@@ -630,8 +630,20 @@ export function ToolPanel(props: ToolPanelProps) {
             {(
             <section className="flex flex-col gap-3 border-t border-line pt-3">
               <SectionTitle>文案區塊・位置與大小</SectionTitle>
+              <label className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-2 px-3 py-1.5 text-xs text-ink-muted md:py-2">
+                <span className="flex flex-col gap-0.5">
+                  <span className="font-medium text-ink">顯示文案區塊</span>
+                  <Desc>關閉後色塊和文字都不顯示，照片鋪滿整張畫布，只剩拼貼編輯</Desc>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={captionEnabled}
+                  onChange={(e) => onCaptionEnabledChange(e.target.checked)}
+                  className="h-4 w-4 shrink-0 accent-accent"
+                />
+              </label>
               {!captionEnabled ? (
-                <p className="text-[11px] text-ink-faint">目前沒有顯示文案，照片鋪滿整張畫布。到「文案」分頁可以開啟。</p>
+                <p className="text-[11px] text-ink-faint">目前沒有顯示文案區塊，照片鋪滿整張畫布，可以當成純拼貼來編輯。</p>
               ) : (
                 <div className="grid grid-cols-2 gap-2">
                   {LAYOUT_OPTIONS.map((opt) => (
@@ -1177,11 +1189,10 @@ export function ToolPanel(props: ToolPanelProps) {
 
         {activeTab === "caption" && (
           <div className="flex flex-col gap-3">
-            {features.captionBlock && (
-              <label className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-2 px-3 py-1.5 text-xs text-ink-muted md:py-2">
+            <label className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-2 px-3 py-1.5 text-xs text-ink-muted md:py-2">
                 <span className="flex flex-col gap-0.5">
                   <span className="font-medium text-ink">顯示文案區塊</span>
-                  <Desc>關閉後色塊和文字都不顯示，照片鋪滿整張畫布</Desc>
+                  <Desc>關閉後色塊和文字都不顯示，照片鋪滿整張畫布，只剩拼貼編輯</Desc>
                 </span>
                 <input
                   type="checkbox"
@@ -1190,7 +1201,6 @@ export function ToolPanel(props: ToolPanelProps) {
                   className="h-4 w-4 shrink-0 accent-accent"
                 />
               </label>
-            )}
 
             {captionEnabled && (
               <>

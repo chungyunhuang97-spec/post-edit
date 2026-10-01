@@ -134,7 +134,7 @@ export type StylePresetId =
   | "cutout-block"
   | "journal-dots"
   | "airy-words"
-  | "silhouette-frame";
+  | "cinema-title";
 
 /** Which groups of controls a style actually uses. Anything a style leaves
  * out is hidden while that style is active, so the panels only list what
