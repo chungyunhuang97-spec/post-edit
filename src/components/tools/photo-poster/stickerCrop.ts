@@ -1,3 +1,4 @@
+import { paneFracs, paneIndexAt } from "./collage";
 import type { CollageLayoutId } from "./types";
 
 /** The cover-fit placement of one photo inside its pane (see
@@ -27,16 +28,10 @@ export function locateInPane(
   xPx: number,
   yPx: number,
   sizePx: number,
-): { index: 0 | 1; x: number; y: number } {
-  if (layout === "duo-h") {
-    const index = xPx + sizePx / 2 > zoneW / 2 ? 1 : 0;
-    return { index, x: xPx - (index ? zoneW / 2 : 0), y: yPx };
-  }
-  if (layout === "duo-v") {
-    const index = yPx + sizePx / 2 > zoneH / 2 ? 1 : 0;
-    return { index, x: xPx, y: yPx - (index ? zoneH / 2 : 0) };
-  }
-  return { index: 0, x: xPx, y: yPx };
+): { index: number; x: number; y: number } {
+  const index = paneIndexAt(layout, zoneW, zoneH, xPx + sizePx / 2, yPx + sizePx / 2);
+  const f = paneFracs(layout)[index];
+  return { index, x: xPx - f.x * zoneW, y: yPx - f.y * zoneH };
 }
 
 /** The square region of the source image (in source px) that a sticker of

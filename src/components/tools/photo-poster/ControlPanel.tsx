@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { BRACKET_OPTIONS, FONT_OPTIONS, LAYOUT_OPTIONS, SHAPE_OPTIONS, STICKER_STYLE_OPTIONS } from "./constants";
+import { defaultLayoutForCount, layoutsForCount, paneFracs, photoCountOf } from "./collage";
+import { BRACKET_OPTIONS, COLLAGE_OPTIONS, FONT_OPTIONS, LAYOUT_OPTIONS, SHAPE_OPTIONS, STICKER_STYLE_OPTIONS } from "./constants";
 import { STYLE_PRESETS } from "./stylePresets";
 import { DEFAULT_DECOR } from "./types";
 import type {
@@ -233,7 +234,7 @@ function Segmented<T extends string>({
   onChange: (id: T) => void;
 }) {
   return (
-    <div className={`grid gap-2 ${options.length === 2 ? "grid-cols-2" : "grid-cols-3"}`}>
+    <div className={`grid gap-2 ${options.length === 2 ? "grid-cols-2" : options.length === 4 ? "grid-cols-4" : "grid-cols-3"}`}>
       {options.map((opt) => (
         <button
           key={opt.id}
@@ -273,12 +274,17 @@ function LayoutIcon({ id }: { id: PosterLayoutId }) {
   );
 }
 
-/** Mini diagram of how two photos split the canvas. */
-function SplitIcon({ dir }: { dir: "h" | "v" }) {
+/** Mini diagram of how the photos split the canvas. */
+function CollageIcon({ id }: { id: CollageLayoutId }) {
   return (
-    <span className={`flex h-4 w-5 gap-px overflow-hidden rounded-[2px] ${dir === "h" ? "flex-row" : "flex-col"}`}>
-      <span className="flex-1 bg-current opacity-60" />
-      <span className="flex-1 bg-current opacity-60" />
+    <span className="relative block h-4 w-5 overflow-hidden rounded-[2px]">
+      {paneFracs(id).map((f, i) => (
+        <span
+          key={i}
+          className="absolute bg-current opacity-60"
+          style={{ left: `calc(${f.x * 100}% + 0.5px)`, top: `calc(${f.y * 100}% + 0.5px)`, width: `calc(${f.w * 100}% - 1px)`, height: `calc(${f.h * 100}% - 1px)` }}
+        />
+      ))}
     </span>
   );
 }
@@ -371,17 +377,13 @@ export interface ToolPanelProps {
   styleDirty: boolean;
   onRestoreStyle: () => void;
 
-  imageUrl: string | null;
-  uploadError: string | null;
-  onRequestUpload: () => void;
-  imageUrl2: string | null;
-  uploadError2: string | null;
-  onRequestUpload2: () => void;
+  /** One entry per photo slot (see collage.ts). */
+  imageUrls: (string | null)[];
+  uploadErrors: (string | null)[];
+  onRequestUpload: (slot: number) => void;
 
-  zoom: number;
-  onZoomChange: (n: number) => void;
-  zoom2: number;
-  onZoom2Change: (n: number) => void;
+  zooms: number[];
+  onZoomChange: (slot: number, n: number) => void;
   grainEnabled: boolean;
   onGrainEnabledChange: (enabled: boolean) => void;
   grainIntensity: number;
@@ -473,16 +475,11 @@ export function ToolPanel(props: ToolPanelProps) {
     stickerLinked,
     styleDirty,
     onRestoreStyle,
-    imageUrl,
-    uploadError,
+    imageUrls,
+    uploadErrors,
     onRequestUpload,
-    imageUrl2,
-    uploadError2,
-    onRequestUpload2,
-    zoom,
+    zooms,
     onZoomChange,
-    zoom2,
-    onZoom2Change,
     grainEnabled,
     onGrainEnabledChange,
     grainIntensity,
@@ -531,7 +528,9 @@ export function ToolPanel(props: ToolPanelProps) {
     maskStatus,
   } = props;
 
-  const isDuo = collageLayoutId !== "single";
+  const photoN = photoCountOf(collageLayoutId);
+  const isDuo = photoN > 1;
+  const imageUrl = imageUrls[0];
   const currentStyle = STYLE_PRESETS.find((p) => p.id === activeStyleId) ?? null;
   // With a style applied, its picker folds away to a one-line header.
   const [pickerOpen, setPickerOpen] = useState(() => activeStyleId === null);
@@ -587,47 +586,45 @@ export function ToolPanel(props: ToolPanelProps) {
           <div className="flex flex-col gap-5">
             <section className="flex flex-col gap-3">
               <SectionTitle>照片</SectionTitle>
-              <Segmented
+              <Segmented<"1" | "2" | "3" | "4">
                 options={[
-                  { id: "single", label: "單張照片" },
-                  { id: "pair", label: "雙張照片" },
+                  { id: "1", label: "單張" },
+                  { id: "2", label: "2 張" },
+                  { id: "3", label: "3 張" },
+                  { id: "4", label: "4 張" },
                 ]}
-                value={isDuo ? "pair" : "single"}
-                onChange={(id) => onCollageLayoutChange(id === "single" ? "single" : "duo-h")}
+                value={String(photoN) as "1" | "2" | "3" | "4"}
+                onChange={(id) => onCollageLayoutChange(defaultLayoutForCount(Number(id)))}
               />
               {isDuo && (
                 <Segmented
-                  options={[
-                    { id: "duo-h", label: "左右並排", icon: <SplitIcon dir="h" /> },
-                    { id: "duo-v", label: "上下並排", icon: <SplitIcon dir="v" /> },
-                  ]}
+                  options={layoutsForCount(photoN).map((id) => ({
+                    id,
+                    label: COLLAGE_OPTIONS.find((o) => o.id === id)!.label.split("・")[1],
+                    icon: <CollageIcon id={id} />,
+                  }))}
                   value={collageLayoutId}
                   onChange={onCollageLayoutChange}
                 />
               )}
 
-              <PhotoSlot
-                label={isDuo ? (collageLayoutId === "duo-h" ? "照片 1（左）" : "照片 1（上）") : "照片"}
-                url={imageUrl}
-                error={uploadError}
-                onUpload={onRequestUpload}
-                zoom={zoom}
-                onZoomChange={onZoomChange}
-              />
-              {isDuo && (
+              {Array.from({ length: photoN }, (_, slot) => (
                 <PhotoSlot
-                  label={collageLayoutId === "duo-h" ? "照片 2（右）" : "照片 2（下）"}
-                  url={imageUrl2}
-                  error={uploadError2}
-                  onUpload={onRequestUpload2}
-                  zoom={zoom2}
-                  onZoomChange={onZoom2Change}
+                  key={slot}
+                  label={isDuo ? `照片 ${slot + 1}` : "照片"}
+                  url={imageUrls[slot] ?? null}
+                  error={uploadErrors[slot] ?? null}
+                  onUpload={() => onRequestUpload(slot)}
+                  zoom={zooms[slot] ?? 1}
+                  onZoomChange={(n) => onZoomChange(slot, n)}
                 />
+              ))}
+              {isDuo && imageUrls.slice(0, photoN).some((u) => !u) && (
+                <p className="text-[11px] text-ink-faint">所有照片都上傳後才能匯出。</p>
               )}
-              {isDuo && !imageUrl2 && <p className="text-[11px] text-ink-faint">兩張照片都上傳後才能匯出。</p>}
 
               {imageUrl && (
-                <Desc>{isDuo ? "兩張照片各自縮放，也可以在畫布上各自拖曳調整位置" : "直接拖曳上方預覽的照片可調整顯示位置"}</Desc>
+                <Desc>{isDuo ? "每張照片各自縮放，也可以在畫布上各自拖曳調整位置" : "直接拖曳上方預覽的照片可調整顯示位置"}</Desc>
               )}
             </section>
             {features.captionBg && !linkedColor && captionEnabled && (
@@ -1105,13 +1102,10 @@ export function ToolPanel(props: ToolPanelProps) {
                         <span className="text-right tabular-nums">{decor.subjectPasteW}%</span>
                       </label>
                       {isDuo && (
-                        <Segmented<"0" | "1">
-                          options={[
-                            { id: "0", label: "取自照片 1" },
-                            { id: "1", label: "取自照片 2" },
-                          ]}
-                          value={String(decor.subjectPastePhoto) as "0" | "1"}
-                          onChange={(id) => onDecorChange({ subjectPastePhoto: id === "1" ? 1 : 0 })}
+                        <Segmented<string>
+                          options={Array.from({ length: photoN }, (_, k) => ({ id: String(k), label: `照片 ${k + 1}` }))}
+                          value={String(Math.min(decor.subjectPastePhoto, photoN - 1))}
+                          onChange={(id) => onDecorChange({ subjectPastePhoto: Number(id) })}
                         />
                       )}
                       <button

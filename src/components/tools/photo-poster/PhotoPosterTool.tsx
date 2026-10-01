@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BRACKET_OPTIONS, FONT_OPTIONS, SHAPE_BASE_PX, SHAPE_OPTIONS, generateSocialCaption } from "./constants";
+import { MAX_PHOTOS, photoCountOf } from "./collage";
 import { assignTilePhotos, captionWords, makeDots, makeTiles, makeWordPositions } from "./decorLayout";
 import { CanvasSizeStep } from "./CanvasSizeStep";
 import { ToolPanel, ToolRail, type TabId } from "./ControlPanel";
@@ -91,14 +92,11 @@ const DEFAULT_TEXT_COLOR = "#f5f3ff";
 export function PhotoPosterTool() {
   const [preset, setPreset] = useState<CanvasPreset | null>(null);
   const canvasAspect = preset ? preset.width / preset.height : 0.8;
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  // Second photo + its own upload error, only meaningful once collageLayout
-  // is a "duo-*" arrangement -- kept as a sibling of imageUrl rather than
-  // generalizing to an array so the existing single-photo path (still the
-  // overwhelmingly common case) stays untouched.
-  const [imageUrl2, setImageUrl2] = useState<string | null>(null);
-  const [uploadError2, setUploadError2] = useState<string | null>(null);
+  // One entry per photo slot (up to MAX_PHOTOS); only the first
+  // photoCountOf(collageLayoutId) slots are shown.
+  const [imageUrls, setImageUrls] = useState<(string | null)[]>(() => Array(MAX_PHOTOS).fill(null));
+  const [uploadErrors, setUploadErrors] = useState<(string | null)[]>(() => Array(MAX_PHOTOS).fill(null));
+  const imageUrl = imageUrls[0];
   const [collageLayoutId, setCollageLayoutId] = useState<CollageLayoutId>("single");
   // Whether the caption renders at all. In collage mode this is the whole
   // point (photos fill the canvas; the caption is an optional band pressed
@@ -134,10 +132,8 @@ export function PhotoPosterTool() {
   const [captionBgColor, setCaptionBgColor] = useState(DEFAULT_CAPTION_BG);
   const [textColor, setTextColor] = useState(DEFAULT_TEXT_COLOR);
   const [stickerColor, setStickerColor] = useState(DEFAULT_CAPTION_BG);
-  const [pan, setPan] = useState({ x: 0.5, y: 0.5 });
-  const [pan2, setPan2] = useState({ x: 0.5, y: 0.5 });
-  const [zoom, setZoom] = useState(1);
-  const [zoom2, setZoom2] = useState(1);
+  const [pans, setPans] = useState(() => Array.from({ length: MAX_PHOTOS }, () => ({ x: 0.5, y: 0.5 })));
+  const [zooms, setZooms] = useState<number[]>(() => Array(MAX_PHOTOS).fill(1));
   const [exporting, setExporting] = useState(false);
   const [layout, setLayout] = useState<PosterLayoutId>("text-top");
   const [suggestingCaption, setSuggestingCaption] = useState(false);
@@ -158,7 +154,7 @@ export function PhotoPosterTool() {
   const [grainIntensity, setGrainIntensity] = useState(30);
   const canvasRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const fileInputRef2 = useRef<HTMLInputElement>(null);
+  const uploadSlotRef = useRef(0);
 
   // The preview frame is letterboxed by hand: measure the available box and
   // compute an exact pixel size that preserves the poster's aspect ratio.
@@ -191,101 +187,96 @@ export function PhotoPosterTool() {
     wrapObserverRef.current = observer;
   }, []);
 
+  // Small photos are sized against the caption zone's shape.
+  const zoneAspect = zoneAspectOf(layout, decor.captionFraction, canvasAspect, captionEnabled);
+
+  // How many of the current layout's slots hold a photo (at least 1, so the
+  // small photos / styles always have something to draw from).
+  const paneCount = photoCountOf(collageLayoutId);
+  const photoCount = Math.max(1, imageUrls.slice(0, paneCount).filter(Boolean).length);
+
   // A new photo has different dimensions, so any previous pan/zoom picked
   // for the old photo's "slack" no longer means anything -- reset to
   // centered and unzoomed.
-  const handleImageChange = useCallback((url: string) => {
-    setImageUrl(url);
-    setPan({ x: 0.5, y: 0.5 });
-    setZoom(1);
-  }, []);
+  const setSlotPhoto = useCallback(
+    (slot: number, url: string) => {
+      setImageUrls((prev) => prev.map((u, i) => (i === slot ? url : u)));
+      setUploadErrors((prev) => prev.map((e, i) => (i === slot ? null : e)));
+      setPans((prev) => prev.map((pn, i) => (i === slot ? { x: 0.5, y: 0.5 } : pn)));
+      setZooms((prev) => prev.map((z, i) => (i === slot ? 1 : z)));
+      // Every uploaded photo should show up in the small-photo layer too.
+      if (slot > 0) {
+        const filled = imageUrls.slice(0, photoCountOf(collageLayoutId)).filter(Boolean).length + (imageUrls[slot] ? 0 : 1);
+        setTiles((prev) => assignTilePhotos(prev, Math.max(1, filled), zoneAspect, TILE_REGION));
+      }
+    },
+    [imageUrls, collageLayoutId, zoneAspect],
+  );
 
   // Upload/paste/drag handling lives here (not in PosterPreview or
-  // ControlPanel) since both need to trigger it: the empty photo zone in
-  // the preview is itself the upload target, and the "照片" tab's
-  // "變更照片" button re-opens the same file picker once an image exists.
-  const handleRequestUpload = useCallback(() => fileInputRef.current?.click(), []);
+  // ControlPanel) since both need to trigger it: each empty photo pane in
+  // the preview is itself an upload target, and the 版型 tab's slots
+  // re-open the same file picker.
+  const handleRequestUpload = useCallback((slot: number) => {
+    uploadSlotRef.current = slot;
+    fileInputRef.current?.click();
+  }, []);
 
   const handleFileList = useCallback(
-    async (files: FileList | null) => {
+    async (slot: number, files: FileList | null) => {
       const file = files?.[0];
       if (!file) return;
       const result = await loadUploadedImage(file);
       if ("error" in result) {
-        setUploadError(result.error);
+        setUploadErrors((prev) => prev.map((e, i) => (i === slot ? result.error : e)));
         return;
       }
-      setUploadError(null);
-      handleImageChange(result.url);
+      setSlotPhoto(slot, result.url);
     },
-    [handleImageChange],
+    [setSlotPhoto],
   );
-
-  // Small photos are sized against the caption zone's shape.
-  const zoneAspect = zoneAspectOf(layout, decor.captionFraction, canvasAspect, captionEnabled);
-
-  const handleRequestUpload2 = useCallback(() => fileInputRef2.current?.click(), []);
-
-  const handleFileList2 = useCallback(async (files: FileList | null) => {
-    const file = files?.[0];
-    if (!file) return;
-    const result = await loadUploadedImage(file);
-    if ("error" in result) {
-      setUploadError2(result.error);
-      return;
-    }
-    setUploadError2(null);
-    setImageUrl2(result.url);
-    setPan2({ x: 0.5, y: 0.5 });
-    setZoom2(1);
-    // Every uploaded photo should show up in the small-photo layer too.
-    if (collageLayoutId !== "single") setTiles((prev) => assignTilePhotos(prev, 2, zoneAspect, TILE_REGION));
-  }, [collageLayoutId, zoneAspect]);
 
   useEffect(() => {
     function onPaste(e: ClipboardEvent) {
       const item = Array.from(e.clipboardData?.items ?? []).find((i) => i.type.startsWith("image/"));
       const file = item?.getAsFile();
       if (!file) return;
-      // In a two-photo layout, pasting fills the second slot once the
-      // first is taken, rather than always replacing photo 1.
-      const intoSecond = collageLayoutId !== "single" && !!imageUrl && !imageUrl2;
+      // Pasting fills the first empty slot of the current layout, or
+      // replaces photo 1 when they are all taken.
+      const empty = imageUrls.slice(0, photoCountOf(collageLayoutId)).findIndex((u) => !u);
+      const slot = empty >= 0 ? empty : 0;
       loadUploadedImage(file).then((result) => {
         if ("error" in result) {
-          (intoSecond ? setUploadError2 : setUploadError)(result.error);
+          setUploadErrors((prev) => prev.map((er, i) => (i === slot ? result.error : er)));
           return;
         }
-        if (intoSecond) {
-          setUploadError2(null);
-          setImageUrl2(result.url);
-          setTiles((prev) => assignTilePhotos(prev, 2, zoneAspect, TILE_REGION));
-          setPan2({ x: 0.5, y: 0.5 });
-          setZoom2(1);
-        } else {
-          setUploadError(null);
-          handleImageChange(result.url);
-        }
+        setSlotPhoto(slot, result.url);
       });
     }
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
-  }, [handleImageChange, collageLayoutId, imageUrl, imageUrl2, zoneAspect]);
+  }, [setSlotPhoto, collageLayoutId, imageUrls]);
 
   // Subject detection (a client-side ML model) runs only once a feature
   // that needs it is switched on, once per photo; the preview and the
   // export share the result.
-  const mask1 = useSubjectMask(imageUrl, decor.silhouetteEnabled);
-  const mask2 = useSubjectMask(collageLayoutId !== "single" ? imageUrl2 : null, decor.silhouetteEnabled);
-  const subjectMask = mask1.mask;
-  const subjectMask2 = mask2.mask;
-  const maskStatus: MaskStatus =
-    mask1.status === "loading" || mask2.status === "loading"
-      ? "loading"
-      : mask1.status === "ready" || mask2.status === "ready"
-        ? "ready"
-        : mask1.status === "unavailable" || mask2.status === "unavailable"
-          ? "unavailable"
-          : "idle";
+  const sil = decor.silhouetteEnabled;
+  const mask0 = useSubjectMask(paneCount > 0 ? imageUrls[0] : null, sil);
+  const mask1 = useSubjectMask(paneCount > 1 ? imageUrls[1] : null, sil);
+  const mask2 = useSubjectMask(paneCount > 2 ? imageUrls[2] : null, sil);
+  const mask3 = useSubjectMask(paneCount > 3 ? imageUrls[3] : null, sil);
+  const subjectMasks = useMemo(
+    () => [mask0.mask, mask1.mask, mask2.mask, mask3.mask],
+    [mask0.mask, mask1.mask, mask2.mask, mask3.mask],
+  );
+  const maskStatuses = [mask0.status, mask1.status, mask2.status, mask3.status];
+  const maskStatus: MaskStatus = maskStatuses.includes("loading")
+    ? "loading"
+    : maskStatuses.includes("ready")
+      ? "ready"
+      : maskStatuses.includes("unavailable")
+        ? "unavailable"
+        : "idle";
 
   const handleCutoutCountChange = useCallback(
     (n: number) => {
@@ -313,7 +304,9 @@ export function PhotoPosterTool() {
 
   const handleCollageLayoutChange = useCallback((id: CollageLayoutId) => {
     setCollageLayoutId(id);
-    setTiles((prev) => assignTilePhotos(prev, id !== "single" && imageUrl2 ? 2 : 1, zoneAspect, TILE_REGION));
+    setTiles((prev) =>
+      assignTilePhotos(prev, Math.max(1, imageUrls.slice(0, photoCountOf(id)).filter(Boolean).length), zoneAspect, TILE_REGION),
+    );
     if (id !== "single") {
       // The default scale was tuned for a sticker sitting inline within a
       // line of caption text -- against two full-bleed photos with no
@@ -324,7 +317,7 @@ export function PhotoPosterTool() {
       // choice.
       setScaleMultiplier((prev) => (prev <= 0.5 ? 1.4 : prev));
     }
-  }, [imageUrl2, zoneAspect]);
+  }, [imageUrls, zoneAspect]);
 
   // Applies a full named look in one go -- every field a style preset
   // covers is overwritten (including a fresh cutout scatter/count, so the
@@ -336,7 +329,7 @@ export function PhotoPosterTool() {
       const st = buildStyleState(style, {
         caption,
         canvasAspect: preset.width / preset.height,
-        photoCount: collageLayoutId !== "single" && imageUrl2 ? 2 : 1,
+        photoCount,
       });
       setActiveStyleId(style.id);
       setStyleBaseline(
@@ -385,13 +378,12 @@ export function PhotoPosterTool() {
       setDots(st.dots);
       setWordPositions(st.wordPositions);
     },
-    [caption, collageLayoutId, imageUrl2, preset],
+    [caption, photoCount, preset],
   );
 
   // --- Free-placed layers (small photos, dots, scattered words). Turning a
   // layer on for the first time generates it; the count sliders keep what's
   // already placed and only add/remove the difference; "shuffle" re-rolls.
-  const photoCount = collageLayoutId !== "single" && imageUrl2 ? 2 : 1;
 
   const handleTilesEnabledChange = useCallback(
     (enabled: boolean) => {
@@ -565,8 +557,7 @@ export function PhotoPosterTool() {
       const posterCanvas = await renderPosterToCanvas({
         width: preset.width,
         height: preset.height,
-        imageUrl,
-        imageUrl2,
+        imageUrls: imageUrls.slice(0, paneCount),
         collageLayoutId,
         captionEnabled,
         caption,
@@ -583,19 +574,16 @@ export function PhotoPosterTool() {
         squareSizePx: SHAPE_BASE_PX * scaleMultiplier,
         fontFamily,
         previewWidthPx,
-        pan,
-        pan2,
+        pans,
         decor,
         tiles,
         dots,
         wordPositions,
-        zoom,
-        zoom2,
+        zooms,
         layout,
         grainEnabled,
         grainIntensity,
-        subjectMask,
-        subjectMask2,
+        subjectMasks,
       });
 
       const blob = await new Promise<Blob | null>((resolve) => posterCanvas.toBlob(resolve, "image/png"));
@@ -612,7 +600,8 @@ export function PhotoPosterTool() {
   }, [
     preset,
     imageUrl,
-    imageUrl2,
+    imageUrls,
+    paneCount,
     collageLayoutId,
     captionEnabled,
     caption,
@@ -629,19 +618,16 @@ export function PhotoPosterTool() {
     lineHeightMultiplier,
     letterSpacingPx,
     scaleMultiplier,
-    pan,
-    pan2,
+    pans,
     decor,
     tiles,
     dots,
     wordPositions,
-    zoom,
-    zoom2,
+    zooms,
     layout,
     grainEnabled,
     grainIntensity,
-    subjectMask,
-    subjectMask2,
+    subjectMasks,
   ]);
 
   // Dragging the handle above the panel resizes it (phones only); the
@@ -674,7 +660,7 @@ export function PhotoPosterTool() {
 
   // Two-photo layouts need both slots filled; a missing one would export a
   // blank half. Clicking export then opens 版型 (where the slots are).
-  const missingPhotos = !imageUrl || (collageLayoutId !== "single" && !imageUrl2);
+  const missingPhotos = imageUrls.slice(0, paneCount).some((u) => !u);
   const handleExportClick = () => {
     if (missingPhotos) setActiveTab("layout");
     else void handleExport();
@@ -715,14 +701,10 @@ export function PhotoPosterTool() {
         type="file"
         accept="image/*,.heic,.heif"
         className="hidden"
-        onChange={(e) => void handleFileList(e.target.files)}
-      />
-      <input
-        ref={fileInputRef2}
-        type="file"
-        accept="image/*,.heic,.heif"
-        className="hidden"
-        onChange={(e) => void handleFileList2(e.target.files)}
+        onChange={(e) => {
+          void handleFileList(uploadSlotRef.current, e.target.files);
+          e.target.value = "";
+        }}
       />
 
       {/* Phone: opening a tool swaps the main menu for that tool's controls
@@ -750,14 +732,10 @@ export function PhotoPosterTool() {
         >
           <PosterPreview
             canvasRef={canvasRef}
-            imageUrl={imageUrl}
-            uploadError={uploadError}
-            imageUrl2={imageUrl2}
-            uploadError2={uploadError2}
+            imageUrls={imageUrls}
+            uploadErrors={uploadErrors}
             collageLayoutId={collageLayoutId}
             captionEnabled={captionEnabled}
-            onRequestUpload2={handleRequestUpload2}
-            onFilesDropped2={handleFileList2}
             caption={caption}
             cutouts={shapesEnabled ? cutouts : []}
             onCutoutsChange={setCutouts}
@@ -773,10 +751,8 @@ export function PhotoPosterTool() {
             captionBgColor={captionBgColor}
             textColor={textColor}
             stickerColor={stickerColor}
-            pan={pan}
-            onPanChange={setPan}
-            pan2={pan2}
-            onPan2Change={setPan2}
+            pans={pans}
+            onPanChange={(slot, next) => setPans((prev) => prev.map((pn, i) => (i === slot ? next : pn)))}
             decor={decor}
             tiles={tiles}
             onTilesChange={setTiles}
@@ -784,13 +760,11 @@ export function PhotoPosterTool() {
             onDotsChange={setDots}
             wordPositions={wordPositions}
             onWordPositionsChange={setWordPositions}
-            zoom={zoom}
-            zoom2={zoom2}
+            zooms={zooms}
             layout={layout}
             grainEnabled={grainEnabled}
             grainIntensity={grainIntensity}
-            subjectMask={subjectMask}
-            subjectMask2={subjectMask2}
+            subjectMasks={subjectMasks}
             onDecorChange={patchDecor}
             onRequestUpload={handleRequestUpload}
             onFilesDropped={handleFileList}
@@ -849,16 +823,11 @@ export function PhotoPosterTool() {
             onShuffleDots={handleShuffleDots}
             onDotColorChange={handleDotColorChange}
             onShuffleWords={handleShuffleWords}
-            imageUrl={imageUrl}
-            uploadError={uploadError}
+            imageUrls={imageUrls}
+            uploadErrors={uploadErrors}
             onRequestUpload={handleRequestUpload}
-            imageUrl2={imageUrl2}
-            uploadError2={uploadError2}
-            onRequestUpload2={handleRequestUpload2}
-            zoom={zoom}
-            onZoomChange={setZoom}
-            zoom2={zoom2}
-            onZoom2Change={setZoom2}
+            zooms={zooms}
+            onZoomChange={(slot, n) => setZooms((prev) => prev.map((z, i) => (i === slot ? n : z)))}
             grainEnabled={grainEnabled}
             onGrainEnabledChange={setGrainEnabled}
             grainIntensity={grainIntensity}

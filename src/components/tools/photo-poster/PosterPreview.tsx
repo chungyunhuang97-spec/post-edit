@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { OVERLAY_BAND_FRACTION, TOP_ZONE_FRACTION } from "./constants";
 import { drawFilmGrain } from "./grain";
 import type { SubjectMask } from "./subjectSegmentation";
@@ -21,6 +21,7 @@ import type {
   Tile,
   WordPos,
 } from "./types";
+import { paneFracs } from "./collage";
 import { drawHalftoneTile, locateInPane, stickerSourceRect, type CropGeom } from "./stickerCrop";
 import { buildCaptionTokens, clampPct } from "./useCutoutLayout";
 
@@ -69,31 +70,37 @@ function computeCoverGeometry(
   };
 }
 
-/** Tracks a photo's natural (unscaled) pixel dimensions -- shared by both
- * the primary and the collage-mode second photo, so cover-fit geometry can
- * be computed for either. */
-function useNaturalSize(imageUrl: string | null): { w: number; h: number } {
-  const [natural, setNatural] = useState({ w: 0, h: 0 });
+/** Loads every photo url (one per slot) once; returns the image elements
+ * and natural sizes per slot (null / 0x0 until loaded or when empty). */
+function useImages(urls: (string | null)[]): { els: (HTMLImageElement | null)[]; naturals: { w: number; h: number }[] } {
+  const [loaded, setLoaded] = useState<Record<string, HTMLImageElement>>({});
+  const key = urls.join("|");
   useEffect(() => {
-    if (!imageUrl) return;
-    const img = new Image();
-    img.onload = () => setNatural({ w: img.naturalWidth, h: img.naturalHeight });
-    img.src = imageUrl;
-  }, [imageUrl]);
-  return natural;
+    let cancelled = false;
+    urls.forEach((u) => {
+      if (!u) return;
+      const img = new Image();
+      img.onload = () => {
+        if (!cancelled) setLoaded((prev) => (prev[u] ? prev : { ...prev, [u]: img }));
+      };
+      img.src = u;
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  const els = urls.map((u) => (u ? (loaded[u] ?? null) : null));
+  const naturals = els.map((el) => ({ w: el?.naturalWidth ?? 0, h: el?.naturalHeight ?? 0 }));
+  return { els, naturals };
 }
 
 export interface PosterPreviewProps {
   canvasRef: React.RefObject<HTMLDivElement | null>;
-  imageUrl: string | null;
-  uploadError: string | null;
-  /** Second photo + its own upload error, only rendered once
-   * collageLayoutId is a "duo-*" arrangement. */
-  imageUrl2: string | null;
-  uploadError2: string | null;
+  /** One url / error per photo slot (see collage.ts). */
+  imageUrls: (string | null)[];
+  uploadErrors: (string | null)[];
   collageLayoutId: CollageLayoutId;
-  onRequestUpload2: () => void;
-  onFilesDropped2: (files: FileList) => void;
   /** Whether the caption renders at all -- false means photo(s) fill the
    * entire canvas with no text zone, rather than an empty/collapsed one. */
   captionEnabled: boolean;
@@ -112,11 +119,8 @@ export interface PosterPreviewProps {
   captionBgColor: string;
   textColor: string;
   stickerColor: string;
-  pan: { x: number; y: number };
-  onPanChange: (next: { x: number; y: number }) => void;
-  /** Independent crop position for the second photo in a duo collage. */
-  pan2: { x: number; y: number };
-  onPan2Change: (next: { x: number; y: number }) => void;
+  pans: { x: number; y: number }[];
+  onPanChange: (slot: number, next: { x: number; y: number }) => void;
   decor: DecorState;
   tiles: Tile[];
   onTilesChange: (next: Tile[]) => void;
@@ -124,18 +128,14 @@ export interface PosterPreviewProps {
   onDotsChange: (next: Dot[]) => void;
   wordPositions: WordPos[];
   onWordPositionsChange: (next: WordPos[]) => void;
-  zoom: number;
-  /** Second photo's own zoom in a duo collage. */
-  zoom2: number;
+  zooms: number[];
   layout: PosterLayoutId;
   grainEnabled: boolean;
   grainIntensity: number;
-  subjectMask: SubjectMask | null;
-  /** Subject of the second photo (duo collage). */
-  subjectMask2: SubjectMask | null;
+  subjectMasks: (SubjectMask | null)[];
   onDecorChange: (patch: Partial<DecorState>) => void;
-  onRequestUpload: () => void;
-  onFilesDropped: (files: FileList) => void;
+  onRequestUpload: (slot: number) => void;
+  onFilesDropped: (slot: number, files: FileList) => void;
 }
 
 /** The detected subject of a photo, painted as a flat color shape
@@ -212,25 +212,6 @@ function PastedSubject({
   return <canvas ref={ref} className="pointer-events-auto absolute" style={style} {...handlers} />;
 }
 
-/** Loads a URL into an HTMLImageElement (null until ready) so canvas
- * drawing can sample the same bitmap the preview displays. */
-function useImageElement(url: string | null): HTMLImageElement | null {
-  const [state, setState] = useState<{ url: string; img: HTMLImageElement } | null>(null);
-  useEffect(() => {
-    if (!url) return;
-    let cancelled = false;
-    const img = new Image();
-    img.onload = () => {
-      if (!cancelled) setState({ url, img });
-    };
-    img.src = url;
-    return () => {
-      cancelled = true;
-    };
-  }, [url]);
-  return state && state.url === url ? state.img : null;
-}
-
 /** A sticker filled with a halftone print of the photo under it (see
  * drawHalftoneTile). Falls back to a flat color until the photo is ready. */
 function HalftoneTile({
@@ -274,13 +255,9 @@ function HalftoneTile({
 
 export function PosterPreview({
   canvasRef,
-  imageUrl,
-  uploadError,
-  imageUrl2,
-  uploadError2,
+  imageUrls,
+  uploadErrors,
   collageLayoutId,
-  onRequestUpload2,
-  onFilesDropped2,
   captionEnabled,
   caption,
   cutouts,
@@ -297,10 +274,8 @@ export function PosterPreview({
   captionBgColor,
   textColor,
   stickerColor,
-  pan,
+  pans,
   onPanChange,
-  pan2,
-  onPan2Change,
   decor,
   tiles,
   onTilesChange,
@@ -308,13 +283,11 @@ export function PosterPreview({
   onDotsChange,
   wordPositions,
   onWordPositionsChange,
-  zoom,
-  zoom2,
+  zooms,
   layout,
   grainEnabled,
   grainIntensity,
-  subjectMask,
-  subjectMask2,
+  subjectMasks,
   onDecorChange,
   onRequestUpload,
   onFilesDropped,
@@ -352,12 +325,11 @@ export function PosterPreview({
   const dragState = useRef<{ id: string; startX: number; startY: number; originXPct: number; originYPct: number } | null>(
     null,
   );
-  const panDragState = useRef<{ slot: 1 | 2; startX: number; startY: number; originPanX: number; originPanY: number } | null>(null);
+  const panDragState = useRef<{ slot: number; startX: number; startY: number; originPanX: number; originPanY: number } | null>(null);
 
-  const isDuo = collageLayoutId !== "single";
-
-  const natural = useNaturalSize(imageUrl);
-  const natural2 = useNaturalSize(imageUrl2);
+  const panesFrac = paneFracs(collageLayoutId);
+  const imageUrl = imageUrls[0] ?? null;
+  const { els: imageEls, naturals } = useImages(imageUrls.slice(0, panesFrac.length));
 
   // A *callback* ref, not useRef+useEffect([]) -- the photo zone's own div
   // gets torn down and remounted as a fresh DOM node whenever the layout
@@ -387,10 +359,6 @@ export function PosterPreview({
     boxObserverRef.current = observer;
   }, []);
 
-  const displayImageUrl = imageUrl;
-  const displayImageUrl2 = imageUrl2;
-  const imageEl = useImageElement(displayImageUrl);
-  const imageEl2 = useImageElement(displayImageUrl2);
 
   useEffect(() => {
     const el = canvasRef.current;
@@ -421,17 +389,13 @@ export function PosterPreview({
     drawFilmGrain(ctx, canvas.width, canvas.height, grainIntensity / 100);
   }, [grainEnabled, grainIntensity, frameSize]);
 
-  // In a duo collage, each photo only ever fills its own half of the photo
-  // zone -- halved on whichever axis the split runs along, full-size on the
-  // other. In single mode this collapses back to the full box, so `geometry`
-  // below is exactly what it always was.
-  const paneBoxW = collageLayoutId === "duo-h" ? boxSize.w / 2 : boxSize.w;
-  const paneBoxH = collageLayoutId === "duo-v" ? boxSize.h / 2 : boxSize.h;
-
-  const geometry = computeCoverGeometry(paneBoxW, paneBoxH, natural.w, natural.h, pan, zoom);
-  // Each photo in a duo collage has its own crop position (drag within its
-  // own pane) and its own zoom.
-  const geometry2 = computeCoverGeometry(paneBoxW, paneBoxH, natural2.w, natural2.h, pan2, zoom2);
+  // Each photo only ever fills its own pane of the photo zone (see
+  // collage.ts), with its own crop position and zoom. In single mode the
+  // one pane is the whole box.
+  const paneBoxes = panesFrac.map((f) => ({ w: f.w * boxSize.w, h: f.h * boxSize.h }));
+  const geometries = paneBoxes.map((b, i) =>
+    computeCoverGeometry(b.w, b.h, naturals[i].w, naturals[i].h, pans[i] ?? { x: 0.5, y: 0.5 }, zooms[i] ?? 1),
+  );
   const squareXPct = boxSize.w ? (squareSizePx / boxSize.w) * 100 : 0;
   const squareYPct = boxSize.h ? (squareSizePx / boxSize.h) * 100 : 0;
 
@@ -448,27 +412,27 @@ export function PosterPreview({
   // above since it's attached to a different element (squares sit on top
   // and capture their own pointer events first, so there's no conflict).
   // In a duo collage each pane drags its own photo independently.
-  function handlePhotoPointerDown(e: ReactPointerEvent<HTMLDivElement>, slot: 1 | 2) {
+  function handlePhotoPointerDown(e: ReactPointerEvent<HTMLDivElement>, slot: number) {
     if (locked || !boxSize.w || !boxSize.h) return;
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    const origin = slot === 1 ? pan : pan2;
+    const origin = pans[slot] ?? { x: 0.5, y: 0.5 };
     panDragState.current = { slot, startX: e.clientX, startY: e.clientY, originPanX: origin.x, originPanY: origin.y };
   }
 
   function handlePhotoPointerMove(e: ReactPointerEvent<HTMLDivElement>) {
     const drag = panDragState.current;
     if (!drag) return;
-    const geom = drag.slot === 1 ? geometry : geometry2;
-    const current = drag.slot === 1 ? pan : pan2;
-    const slackX = geom.renderedW - paneBoxW;
-    const slackY = geom.renderedH - paneBoxH;
+    const geom = geometries[drag.slot];
+    const current = pans[drag.slot] ?? { x: 0.5, y: 0.5 };
+    const slackX = geom.renderedW - paneBoxes[drag.slot].w;
+    const slackY = geom.renderedH - paneBoxes[drag.slot].h;
     const dx = e.clientX - drag.startX;
     const dy = e.clientY - drag.startY;
     // Dragging right should reveal more of the image's left side (the
     // image visually follows the cursor), so pan decreases as dx increases.
     const nextX = slackX > 0 ? clamp01(drag.originPanX - dx / slackX) : current.x;
     const nextY = slackY > 0 ? clamp01(drag.originPanY - dy / slackY) : current.y;
-    (drag.slot === 1 ? onPanChange : onPan2Change)({ x: nextX, y: nextY });
+    onPanChange(drag.slot, { x: nextX, y: nextY });
   }
 
   function handlePhotoPointerUp() {
@@ -528,9 +492,9 @@ export function PosterPreview({
     );
     return {
       ...loc,
-      geom: loc.index === 0 ? geometry : geometry2,
-      url: loc.index === 0 ? displayImageUrl : displayImageUrl2,
-      img: loc.index === 0 ? imageEl : imageEl2,
+      geom: geometries[loc.index],
+      url: imageUrls[loc.index] ?? null,
+      img: imageEls[loc.index] ?? null,
     };
   }
 
@@ -662,19 +626,13 @@ export function PosterPreview({
     </div>
   );
 
-  function photoPane(
-    url: string | null,
-    displayUrl: string | null,
-    geom: CoverGeometry,
-    slot: 1 | 2,
-    onUpload: () => void,
-    onDrop: (files: FileList) => void,
-    error: string | null,
-    // Ctrl/Cmd+V paste always targets the first photo slot (see the paste
-    // listener in PhotoPosterTool.tsx), so only that slot's empty-state
-    // hints at it.
-    pasteHint: boolean,
-  ) {
+  function photoPane(slot: number) {
+    const url = imageUrls[slot] ?? null;
+    const geom = geometries[slot];
+    const error = uploadErrors[slot] ?? null;
+    const onUpload = () => onRequestUpload(slot);
+    const onDrop = (files: FileList) => onFilesDropped(slot, files);
+    const pasteHint = slot === 0 || !imageUrl;
     if (!url) {
       return (
         <div
@@ -699,7 +657,7 @@ export function PosterPreview({
         onPointerUp={handlePhotoPointerUp}
         className="absolute inset-0"
         style={{
-          backgroundImage: `url(${displayUrl})`,
+          backgroundImage: `url(${url})`,
           backgroundSize: `${geom.renderedW}px ${geom.renderedH}px`,
           backgroundPosition: `${geom.offsetX}px ${geom.offsetY}px`,
           backgroundRepeat: "no-repeat",
@@ -713,47 +671,57 @@ export function PosterPreview({
     <div
       key="photo"
       ref={bottomZoneRef}
-      className={`relative flex min-h-0 min-w-0 flex-1 select-none touch-none bg-surface-2 ${decor.frameInsetPct > 0 ? "" : "gap-px"} ${
-        collageLayoutId === "duo-v" ? "flex-col" : "flex-row"
-      }`}
+      className="relative min-h-0 min-w-0 flex-1 select-none touch-none bg-surface-2"
     >
-      {isDuo ? (
-        <>
-          <div className="relative min-h-0 min-w-0 flex-1">
-            {photoPane(imageUrl, displayImageUrl, geometry, 1, onRequestUpload, onFilesDropped, uploadError, true)}
-          </div>
-          <div className="relative min-h-0 min-w-0 flex-1">
-            {photoPane(imageUrl2, displayImageUrl2, geometry2, 2, onRequestUpload2, onFilesDropped2, uploadError2, false)}
-          </div>
-        </>
-      ) : (
-        photoPane(imageUrl, displayImageUrl, geometry, 1, onRequestUpload, onFilesDropped, uploadError, true)
-      )}
-      {isDuo && decor.frameInsetPct > 0 && (
+      {panesFrac.map((f, slot) => (
         <div
-          className="pointer-events-none absolute"
-          style={{
-            backgroundColor: decor.frameColor,
-            ...(collageLayoutId === "duo-h"
-              ? { top: 0, bottom: 0, left: "50%", width: (frameSize.w * decor.frameInsetPct) / 100, transform: "translateX(-50%)" }
-              : { left: 0, right: 0, top: "50%", height: (frameSize.w * decor.frameInsetPct) / 100, transform: "translateY(-50%)" }),
-          }}
-        />
+          key={slot}
+          className="absolute"
+          style={{ left: `${f.x * 100}%`, top: `${f.y * 100}%`, width: `${f.w * 100}%`, height: `${f.h * 100}%` }}
+        >
+          {photoPane(slot)}
+        </div>
+      ))}
+      {panesFrac.length > 1 && decor.frameInsetPct > 0 && (
+        <>
+          {panesFrac.map((f, slot) => {
+            const t = (frameSize.w * decor.frameInsetPct) / 100;
+            return (
+              <Fragment key={slot}>
+                {f.x > 0.001 && (
+                  <div
+                    className="pointer-events-none absolute"
+                    style={{ backgroundColor: decor.frameColor, left: `${f.x * 100}%`, top: `${f.y * 100}%`, height: `${f.h * 100}%`, width: t, transform: "translateX(-50%)" }}
+                  />
+                )}
+                {f.y > 0.001 && (
+                  <div
+                    className="pointer-events-none absolute"
+                    style={{ backgroundColor: decor.frameColor, left: `${f.x * 100}%`, top: `${f.y * 100}%`, width: `${f.w * 100}%`, height: t, transform: "translateY(-50%)" }}
+                  />
+                )}
+              </Fragment>
+            );
+          })}
+        </>
       )}
-      {decor.silhouetteEnabled && subjectMask && imageUrl && (
-        <SilhouetteCanvas mask={subjectMask} color={decor.silhouetteColor} width={paneBoxW} height={paneBoxH} geom={geometry} />
-      )}
-      {decor.silhouetteEnabled && isDuo && subjectMask2 && imageUrl2 && (
-        <SilhouetteCanvas
-          mask={subjectMask2}
-          color={decor.silhouetteColor}
-          width={paneBoxW}
-          height={paneBoxH}
-          geom={geometry2}
-          left={collageLayoutId === "duo-h" ? paneBoxW : 0}
-          top={collageLayoutId === "duo-v" ? paneBoxH : 0}
-        />
-      )}
+      {decor.silhouetteEnabled &&
+        panesFrac.map((f, slot) => {
+          const m = subjectMasks[slot];
+          if (!m || !imageUrls[slot]) return null;
+          return (
+            <SilhouetteCanvas
+              key={slot}
+              mask={m}
+              color={decor.silhouetteColor}
+              width={paneBoxes[slot].w}
+              height={paneBoxes[slot].h}
+              geom={geometries[slot]}
+              left={f.x * boxSize.w}
+              top={f.y * boxSize.h}
+            />
+          );
+        })}
       {imageUrl && cutouts.map((cutout) => renderSticker(cutout))}
       {/* Overlay layouts nest the text band *inside* the photo zone (as its
           absolutely positioned child) rather than as a canvasEl-level
@@ -797,7 +765,7 @@ export function PosterPreview({
       // follows the finger), leaving the tile itself where it is.
       const t = tiles.find((tile) => tile.id === d.id);
       if (!t) return;
-      const nat = t.photo === 1 && imageUrl2 ? natural2 : natural;
+      const nat = naturals[tilePhoto(t)] ?? { w: 0, h: 0 };
       if (!nat.w || !nat.h) return;
       const tw = (t.wPct / 100) * zoneRect.w;
       const th = tw / t.aspect;
@@ -828,13 +796,19 @@ export function PosterPreview({
     overlayDrag.current = null;
   }
 
+  /** The slot a small photo draws from (falls back to the first filled one). */
+  function tilePhoto(t: Tile): number {
+    if (imageUrls[t.photo] && t.photo < panesFrac.length) return t.photo;
+    return Math.max(0, imageUrls.slice(0, panesFrac.length).findIndex(Boolean));
+  }
+
   const overlayCursor = locked ? "default" : "grab";
   const showOverlayText = captionEnabled && decor.showCaptionText;
 
   function renderTile(tile: Tile, i: number) {
-    const useSecond = tile.photo === 1 && !!imageUrl2;
-    const url = useSecond ? displayImageUrl2 : displayImageUrl;
-    const nat = useSecond ? natural2 : natural;
+    const pi = tilePhoto(tile);
+    const url = imageUrls[pi] ?? null;
+    const nat = naturals[pi] ?? { w: 0, h: 0 };
     const tw = (tile.wPct / 100) * zoneRect.w;
     const th = tw / tile.aspect;
     let bg: React.CSSProperties = { backgroundColor: "#d4d4d8" };
@@ -881,9 +855,8 @@ export function PosterPreview({
 
   // The subject cut out of its photo and pasted elsewhere (positions are %
   // of the poster's content area, independent of the caption zone).
-  const pasteUseSecond = decor.subjectPastePhoto === 1 && !!imageEl2 && !!subjectMask2;
-  const pasteSource = pasteUseSecond ? imageEl2 : imageEl;
-  const pasteMask = pasteUseSecond ? subjectMask2 : subjectMask;
+  const pasteSource = imageEls[decor.subjectPastePhoto] ?? null;
+  const pasteMask = subjectMasks[decor.subjectPastePhoto] ?? null;
   const pastedCut =
     decor.silhouetteEnabled && decor.subjectPaste && pasteSource && pasteMask ? buildSubjectCutout(pasteSource, pasteMask) : null;
   const pasteW = (decor.subjectPasteW / 100) * contentSize.w;

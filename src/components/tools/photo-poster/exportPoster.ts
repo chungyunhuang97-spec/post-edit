@@ -1,4 +1,5 @@
 import { drawFilmGrain } from "./grain";
+import { paneFracs } from "./collage";
 import type { SubjectMask } from "./subjectSegmentation";
 import { captionWords, cornerLines, tileSourceRect } from "./decorLayout";
 import { drawSilhouette } from "./silhouette";
@@ -92,33 +93,21 @@ interface LineItem {
   width: number;
 }
 
-/** Mirrors PosterPreview.tsx's paneBoxW/paneBoxH split -- in "single" mode
- * both panes are just the whole photo zone (paneB is simply unused by
- * callers then); "duo-h"/"duo-v" halve it along the matching axis. */
-function splitPanes(zone: ZoneRect, collageLayoutId: CollageLayoutId): [ZoneRect, ZoneRect] {
-  if (collageLayoutId === "duo-h") {
-    const w = zone.w / 2;
-    return [
-      { x: zone.x, y: zone.y, w, h: zone.h },
-      { x: zone.x + w, y: zone.y, w: zone.w - w, h: zone.h },
-    ];
-  }
-  if (collageLayoutId === "duo-v") {
-    const h = zone.h / 2;
-    return [
-      { x: zone.x, y: zone.y, w: zone.w, h },
-      { x: zone.x, y: zone.y + h, w: zone.w, h: zone.h - h },
-    ];
-  }
-  return [zone, zone];
+/** Pixel rects of the photo panes (see collage.ts). */
+function splitPanes(zone: ZoneRect, collageLayoutId: CollageLayoutId): ZoneRect[] {
+  return paneFracs(collageLayoutId).map((f) => ({
+    x: zone.x + f.x * zone.w,
+    y: zone.y + f.y * zone.h,
+    w: f.w * zone.w,
+    h: f.h * zone.h,
+  }));
 }
 
 export interface RenderPosterParams {
   width: number;
   height: number;
-  imageUrl: string;
-  /** Second photo, only drawn when collageLayoutId isn't "single". */
-  imageUrl2: string | null;
+  /** One url per pane of the collage layout (null = slot still empty). */
+  imageUrls: (string | null)[];
   collageLayoutId: CollageLayoutId;
   /** Whether the caption renders at all -- false means the photo zone
    * takes the full canvas and no text/inline-thumbnail pass runs. */
@@ -145,30 +134,22 @@ export interface RenderPosterParams {
    * up uniformly from there to the export resolution, the same idea as
    * html-to-image's pixelRatio, but computed by hand. */
   previewWidthPx: number;
-  /** 0-1 pan within the photo's cover-crop slack, matching the live
-   * preview's draggable photo position (0.5 = centered). */
-  pan: { x: number; y: number };
+  /** Per-photo 0-1 pan within the cover-crop slack (0.5 = centered). */
+  pans: { x: number; y: number }[];
   /** Frame, caption mode and silhouette settings (see DecorState). */
   decor: DecorState;
   tiles: Tile[];
   dots: Dot[];
   wordPositions: WordPos[];
-  /** Second photo's crop position in a duo collage. */
-  pan2: { x: number; y: number };
-  /** >=1 zoom beyond the minimum cover-fit scale, matching the live
-   * preview's zoom slider (1 = no extra zoom). */
-  zoom: number;
-  /** Second photo's own zoom (duo collage). */
-  zoom2: number;
+  /** Per-photo zoom >= 1 beyond the minimum cover-fit scale. */
+  zooms: number[];
   /** Which of the 6 concrete text/photo zone arrangements to render. */
   layout: PosterLayoutId;
   /** Paints a random noise layer over the entire finished poster, last. */
   grainEnabled: boolean;
   /** 0-100. */
   grainIntensity: number;
-  subjectMask: SubjectMask | null;
-  /** Subject of the second photo (duo collage). */
-  subjectMask2: SubjectMask | null;
+  subjectMasks: (SubjectMask | null)[];
 }
 
 /** Renders the poster directly onto a <canvas>, entirely by hand --
@@ -183,8 +164,7 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   const {
     width,
     height,
-    imageUrl,
-    imageUrl2,
+    imageUrls,
     collageLayoutId,
     captionEnabled,
     caption,
@@ -201,19 +181,16 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
     squareSizePx,
     fontFamily,
     previewWidthPx,
-    pan,
-    pan2,
+    pans,
     decor,
     tiles,
     dots,
     wordPositions,
-    zoom,
-    zoom2,
+    zooms,
     layout,
     grainEnabled,
     grainIntensity,
-    subjectMask,
-    subjectMask2,
+    subjectMasks,
   } = params;
 
   const scale = previewWidthPx ? width / previewWidthPx : 1;
@@ -261,20 +238,15 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
     ctx.fillRect(content.x, content.y, content.w, content.h);
   }
 
-  const isDuo = collageLayoutId !== "single";
+  const isMulti = collageLayoutId !== "single";
+  const paneCount = paneFracs(collageLayoutId).length;
 
-  const img = await loadImage(imageUrl);
-  const photoSource: CanvasImageSource = img;
-  const srcW = img.naturalWidth;
-  const srcH = img.naturalHeight;
-
-  // Second photo, only loaded in a duo collage that actually has one --
-  // its absence (slot not filled in yet) just leaves that pane showing the
-  // canvas's base captionBgColor fill underneath.
-  const img2 = isDuo && imageUrl2 ? await loadImage(imageUrl2) : null;
-  const photoSource2: CanvasImageSource | null = img2;
-  const srcW2 = img2 ? img2.naturalWidth : 0;
-  const srcH2 = img2 ? img2.naturalHeight : 0;
+  // An empty slot just leaves its pane showing the base fill.
+  const imgs: (HTMLImageElement | null)[] = await Promise.all(
+    Array.from({ length: paneCount }, (_, i) => (imageUrls[i] ? loadImage(imageUrls[i]!) : Promise.resolve(null))),
+  );
+  const srcW = imgs.map((im) => (im ? im.naturalWidth : 0));
+  const srcH = imgs.map((im) => (im ? im.naturalHeight : 0));
 
   ctx.font = `${fontPx}px ${fontFamily}`;
   const bracketOpenW = bracket.open ? ctx.measureText(bracket.open).width : 0;
@@ -317,11 +289,10 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   const rowHeights = lines.map((line) => (line.some((it) => it.kind === "cutout") ? Math.max(lineHeight, squarePx) : lineHeight));
   const totalTextHeight = rowHeights.reduce((a, b) => a + b, 0) + gapY * Math.max(0, lines.length - 1);
 
-  // In "single" mode paneA is exactly photoZone and paneB is unused; a duo
-  // collage halves the zone along the matching axis (see splitPanes above).
-  const [paneA, paneB] = splitPanes(photoZone, collageLayoutId);
-  const bottomGeom = coverGeometry(paneA.w, paneA.h, srcW, srcH, pan, zoom);
-  const paneBGeom = photoSource2 ? coverGeometry(paneB.w, paneB.h, srcW2, srcH2, pan2, zoom2) : null;
+  const panes = splitPanes(photoZone, collageLayoutId);
+  const geoms = panes.map((pane, i) =>
+    imgs[i] ? coverGeometry(pane.w, pane.h, srcW[i], srcH[i], pans[i] ?? { x: 0.5, y: 0.5 }, zooms[i] ?? 1) : null,
+  );
   const cutoutById = new Map(cutouts.map((c) => [c.id, c]));
 
   /** The photo (and source rect within it) a cutout sits over -- in a duo
@@ -336,9 +307,9 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
       (cutout.yPct / 100) * photoZone.h,
       squarePx,
     );
-    const src = loc.index === 0 ? photoSource : photoSource2;
-    const geom = loc.index === 0 ? bottomGeom : paneBGeom;
-    const w = loc.index === 0 ? srcW : srcW2;
+    const src = imgs[loc.index];
+    const geom = geoms[loc.index];
+    const w = srcW[loc.index];
     if (!src || !geom) return null;
     const rect = stickerSourceRect(geom, w, loc.x, loc.y, squarePx, magnify);
     return rect ? { src, rect } : null;
@@ -352,54 +323,33 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   // and the caption text both end up on top of the photo, not underneath
   // it. ---
   if (photoZone.w > 0 && photoZone.h > 0) {
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(paneA.x, paneA.y, paneA.w, paneA.h);
-    ctx.clip();
-    ctx.drawImage(
-      photoSource,
-      0,
-      0,
-      srcW,
-      srcH,
-      paneA.x + bottomGeom.offsetX,
-      paneA.y + bottomGeom.offsetY,
-      bottomGeom.renderedW,
-      bottomGeom.renderedH,
-    );
-    ctx.restore();
-
-    if (isDuo && photoSource2 && paneBGeom) {
+    panes.forEach((pane, i) => {
+      const im = imgs[i];
+      const g = geoms[i];
+      if (!im || !g) return;
       ctx.save();
       ctx.beginPath();
-      ctx.rect(paneB.x, paneB.y, paneB.w, paneB.h);
+      ctx.rect(pane.x, pane.y, pane.w, pane.h);
       ctx.clip();
-      ctx.drawImage(
-        photoSource2,
-        0,
-        0,
-        srcW2,
-        srcH2,
-        paneB.x + paneBGeom.offsetX,
-        paneB.y + paneBGeom.offsetY,
-        paneBGeom.renderedW,
-        paneBGeom.renderedH,
-      );
+      ctx.drawImage(im, 0, 0, srcW[i], srcH[i], pane.x + g.offsetX, pane.y + g.offsetY, g.renderedW, g.renderedH);
       ctx.restore();
-    }
+    });
 
-    // With a frame, the seam between two photos is frame-colored too.
-    if (isDuo && inset > 0) {
+    // With a frame, the seams between photos are frame-colored too.
+    if (isMulti && inset > 0) {
       ctx.fillStyle = decor.frameColor;
-      if (collageLayoutId === "duo-h") ctx.fillRect(paneB.x - inset / 2, photoZone.y, inset, photoZone.h);
-      else ctx.fillRect(photoZone.x, paneB.y - inset / 2, photoZone.w, inset);
+      panes.forEach((pane) => {
+        if (pane.x > photoZone.x + 1) ctx.fillRect(pane.x - inset / 2, pane.y, inset, pane.h);
+        if (pane.y > photoZone.y + 1) ctx.fillRect(pane.x, pane.y - inset / 2, pane.w, inset);
+      });
     }
 
-    if (decor.silhouetteEnabled && subjectMask) {
-      drawSilhouette(ctx, subjectMask, decor.silhouetteColor, paneA, bottomGeom);
-    }
-    if (decor.silhouetteEnabled && isDuo && subjectMask2 && paneBGeom) {
-      drawSilhouette(ctx, subjectMask2, decor.silhouetteColor, paneB, paneBGeom);
+    if (decor.silhouetteEnabled) {
+      panes.forEach((pane, i) => {
+        const m = subjectMasks[i];
+        const g = geoms[i];
+        if (m && g) drawSilhouette(ctx, m, decor.silhouetteColor, pane, g);
+      });
     }
 
     // Mirrors PosterPreview.tsx's renderSticker: the bare shape, filled
@@ -513,12 +463,13 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
 
   if (decor.tilesEnabled) {
     tiles.forEach((tile, i) => {
-      const useSecond = tile.photo === 1 && photoSource2 && img2;
-      const src = useSecond ? photoSource2! : photoSource;
-      const natW = useSecond ? img2!.naturalWidth : img.naturalWidth;
-      const natH = useSecond ? img2!.naturalHeight : img.naturalHeight;
-      const bmpW = useSecond ? srcW2 : srcW;
-      const bmpH = useSecond ? srcH2 : srcH;
+      const pi = imgs[tile.photo] ? tile.photo : imgs.findIndex((im) => !!im);
+      const src = pi >= 0 ? imgs[pi] : null;
+      if (!src) return;
+      const natW = src.naturalWidth;
+      const natH = src.naturalHeight;
+      const bmpW = srcW[pi];
+      const bmpH = srcH[pi];
       const r = tileSourceRect(tile, natW, natH);
       const kx = bmpW / natW;
       const ky = bmpH / natH;
@@ -580,9 +531,9 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   // The subject cut out of its photo and pasted elsewhere, with a white
   // sticker border (positions are % of the content area).
   if (decor.silhouetteEnabled && decor.subjectPaste) {
-    const useSecond = decor.subjectPastePhoto === 1 && !!img2 && !!subjectMask2;
-    const src = useSecond ? img2 : img;
-    const mask = useSecond ? subjectMask2 : subjectMask;
+    const pi = decor.subjectPastePhoto;
+    const src = imgs[pi] ?? null;
+    const mask = subjectMasks[pi] ?? null;
     const cut = src && mask ? buildSubjectCutout(src, mask) : null;
     if (cut) {
       const w = (decor.subjectPasteW / 100) * content.w;

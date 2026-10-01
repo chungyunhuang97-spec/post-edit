@@ -97,7 +97,16 @@ export interface LayoutOption {
 /** How many photos fill the photo zone, and which way they split it --
  * orthogonal to PosterLayoutId, which only controls where the *caption*
  * sits relative to the (single- or multi-photo) photo zone as a whole. */
-export type CollageLayoutId = "single" | "duo-h" | "duo-v";
+export type CollageLayoutId =
+  | "single"
+  | "duo-h"
+  | "duo-v"
+  | "trio-h"
+  | "trio-v"
+  | "trio-main"
+  | "quad-grid"
+  | "quad-h"
+  | "quad-v";
 
 export interface CollageOption {
   id: CollageLayoutId;
@@ -223,7 +232,7 @@ export type CaptionMode = "flow" | "corner" | "scatter";
 export interface Tile {
   id: string;
   /** 0 = first photo, 1 = second (only meaningful with two photos). */
-  photo: 0 | 1;
+  photo: number;
   /** Center of the crop within the source photo, 0-1. */
   u: number;
   v: number;
@@ -287,7 +296,7 @@ export interface DecorState {
   subjectPasteY: number;
   subjectPasteW: number;
   /** Which photo the pasted subject is cut from. */
-  subjectPastePhoto: 0 | 1;
+  subjectPastePhoto: number;
 }
 
 export const DEFAULT_DECOR: DecorState = {

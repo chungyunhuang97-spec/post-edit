@@ -52,7 +52,7 @@ export function makeTiles(
     const stagger = col % 2 === 1 ? cellH * 0.12 : 0;
     tiles.push({
       id: makeId("tile"),
-      photo: (photoCount > 1 ? i % 2 : 0) as 0 | 1,
+      photo: photoCount > 1 ? i % photoCount : 0,
       u: rand(0.15, 0.85),
       v: rand(0.15, 0.85),
       s: rand(0.22, 0.5),
@@ -134,5 +134,5 @@ export function assignTilePhotos(tiles: Tile[], photoCount: number, zoneAspect: 
   if (tiles.length === 0) return tiles;
   const all = [...tiles];
   if (all.length < photoCount) all.push(...makeTiles(photoCount - all.length, region, zoneAspect, photoCount));
-  return all.map((t, i) => ({ ...t, photo: (photoCount > 1 ? i % 2 : 0) as 0 | 1 }));
+  return all.map((t, i) => ({ ...t, photo: photoCount > 1 ? i % photoCount : 0 }));
 }

@@ -54,6 +54,12 @@ export const COLLAGE_OPTIONS: CollageOption[] = [
   { id: "single", label: "單張照片" },
   { id: "duo-h", label: "雙張照片・左右並排" },
   { id: "duo-v", label: "雙張照片・上下並排" },
+  { id: "trio-h", label: "三張照片・三欄" },
+  { id: "trio-v", label: "三張照片・三列" },
+  { id: "trio-main", label: "三張照片・一大二小" },
+  { id: "quad-grid", label: "四張照片・田字" },
+  { id: "quad-h", label: "四張照片・四欄" },
+  { id: "quad-v", label: "四張照片・四列" },
 ];
 
 // Shape size = this base x the 圖形大小 multiplier -- deliberately NOT tied

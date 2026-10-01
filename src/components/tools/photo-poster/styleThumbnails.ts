@@ -117,8 +117,7 @@ export function useStyleThumbnails(enabled: boolean): Record<string, string> {
           const canvas = await renderPosterToCanvas({
             width: THUMB_W,
             height: THUMB_H,
-            imageUrl: scene.url,
-            imageUrl2: null,
+            imageUrls: [scene.url],
             collageLayoutId: "single",
             captionEnabled: st.captionEnabled,
             caption: SAMPLE_CAPTION,
@@ -135,19 +134,16 @@ export function useStyleThumbnails(enabled: boolean): Record<string, string> {
             squareSizePx: SHAPE_BASE_PX * st.scaleMultiplier,
             fontFamily: await resolveFontFamily(fontOption),
             previewWidthPx: REFERENCE_PREVIEW_W,
-            pan: { x: 0.5, y: 0.5 },
-            pan2: { x: 0.5, y: 0.5 },
+            pans: [{ x: 0.5, y: 0.5 }],
             decor: st.decor,
             tiles: st.tiles,
             dots: st.dots,
             wordPositions: st.wordPositions,
-            zoom: 1,
-            zoom2: 1,
+            zooms: [1],
             layout: st.layout,
             grainEnabled: st.grainEnabled,
             grainIntensity: st.grainIntensity,
-            subjectMask: scene.mask,
-            subjectMask2: null,
+            subjectMasks: [scene.mask],
           });
           if (unmountedRef.current || cancelled) return;
           const url = canvas.toDataURL("image/jpeg", 0.85);
