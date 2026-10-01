@@ -775,9 +775,9 @@ export function ToolPanel(props: ToolPanelProps) {
               </div>
             )}
 
-            {(!currentStyle || !pickerOpen) && (
+            {currentStyle && !pickerOpen && (
               <div className="flex flex-col gap-4">
-                <SectionTitle>{currentStyle ? `${currentStyle.label}・專屬設定` : "自訂設定（尚未選風格，顯示所有功能）"}</SectionTitle>
+                <SectionTitle>{`${currentStyle.label}・專屬設定`}</SectionTitle>
             {features.frame && (
             <section className="flex flex-col gap-3">
               <SectionTitle>外框</SectionTitle>
@@ -1131,7 +1131,7 @@ export function ToolPanel(props: ToolPanelProps) {
               </div>
             )}
 
-            {(!currentStyle || !pickerOpen) && (
+            {currentStyle && !pickerOpen && (
               <section className="flex flex-col gap-3 border-t border-line pt-3">
                 <SectionTitle>顆粒質感</SectionTitle>
 <div className="flex flex-col gap-2 rounded-md border border-line bg-surface-2 px-3 py-2">
