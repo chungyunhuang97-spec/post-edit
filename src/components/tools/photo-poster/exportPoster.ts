@@ -15,7 +15,6 @@ import { canvasShapePath } from "./shapes";
 const DUOTONE_EXPORT_MAX_DIMENSION = 3000;
 // Matches PosterPreview.tsx: in a duo collage neither photo gets a
 // drag-to-pan handle, so both simply center within their own half.
-const CENTER_PAN = { x: 0.5, y: 0.5 };
 // Matches PosterPreview.tsx's identical constant -- the die-cut sticker
 // border's width, as a fraction of the cutout's own size.
 const STICKER_BORDER_FRACTION = 0.1;
@@ -234,6 +233,8 @@ export interface RenderPosterParams {
   /** 0-1 pan within the photo's cover-crop slack, matching the live
    * preview's draggable photo position (0.5 = centered). */
   pan: { x: number; y: number };
+  /** Second photo's crop position in a duo collage. */
+  pan2: { x: number; y: number };
   /** >=1 zoom beyond the minimum cover-fit scale, matching the live
    * preview's zoom slider (1 = no extra zoom). */
   zoom: number;
@@ -286,6 +287,7 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
     fontFamily,
     previewWidthPx,
     pan,
+    pan2,
     zoom,
     layout,
     duotoneEnabled,
@@ -396,8 +398,8 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   // In "single" mode paneA is exactly photoZone and paneB is unused; a duo
   // collage halves the zone along the matching axis (see splitPanes above).
   const [paneA, paneB] = splitPanes(photoZone, collageLayoutId);
-  const bottomGeom = coverGeometry(paneA.w, paneA.h, srcW, srcH, isDuo ? CENTER_PAN : pan, zoom);
-  const paneBGeom = photoSource2 ? coverGeometry(paneB.w, paneB.h, srcW2, srcH2, CENTER_PAN, zoom) : null;
+  const bottomGeom = coverGeometry(paneA.w, paneA.h, srcW, srcH, pan, zoom);
+  const paneBGeom = photoSource2 ? coverGeometry(paneB.w, paneB.h, srcW2, srcH2, pan2, zoom) : null;
   const cutoutById = new Map(cutouts.map((c) => [c.id, c]));
 
   function cutoutImagePoint(cutout: Cutout) {

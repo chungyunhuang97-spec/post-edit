@@ -69,6 +69,7 @@ export function PhotoPosterTool() {
   const [duotoneDark, setDuotoneDark] = useState(DEFAULT_CAPTION_BG);
   const [duotoneLight, setDuotoneLight] = useState(DEFAULT_TEXT_COLOR);
   const [pan, setPan] = useState({ x: 0.5, y: 0.5 });
+  const [pan2, setPan2] = useState({ x: 0.5, y: 0.5 });
   const [zoom, setZoom] = useState(1);
   const [exporting, setExporting] = useState(false);
   const [layout, setLayout] = useState<PosterLayoutId>("text-top");
@@ -164,6 +165,7 @@ export function PhotoPosterTool() {
     }
     setUploadError2(null);
     setImageUrl2(result.url);
+    setPan2({ x: 0.5, y: 0.5 });
   }, []);
 
   useEffect(() => {
@@ -182,6 +184,7 @@ export function PhotoPosterTool() {
         if (intoSecond) {
           setUploadError2(null);
           setImageUrl2(result.url);
+          setPan2({ x: 0.5, y: 0.5 });
         } else {
           setUploadError(null);
           handleImageChange(result.url);
@@ -343,6 +346,7 @@ export function PhotoPosterTool() {
         fontFamily,
         previewWidthPx,
         pan,
+        pan2,
         zoom,
         layout,
         duotoneEnabled,
@@ -385,6 +389,7 @@ export function PhotoPosterTool() {
     letterSpacingPx,
     scaleMultiplier,
     pan,
+    pan2,
     zoom,
     layout,
     duotoneEnabled,
@@ -460,7 +465,7 @@ export function PhotoPosterTool() {
       />
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div ref={previewWrapCallbackRef} className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-3">
+      <div ref={previewWrapCallbackRef} className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-2">
         <div
           style={frameStyle}
           className="overflow-hidden rounded-lg shadow-[0_0_0_1px_rgba(255,255,255,0.08)]"
@@ -492,6 +497,8 @@ export function PhotoPosterTool() {
             stickerColor={stickerColor}
             pan={pan}
             onPanChange={setPan}
+            pan2={pan2}
+            onPan2Change={setPan2}
             zoom={zoom}
             layout={layout}
             duotoneEnabled={duotoneEnabled}

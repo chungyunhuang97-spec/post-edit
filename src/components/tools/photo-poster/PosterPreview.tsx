@@ -10,7 +10,6 @@ import type { BracketOption, CollageLayoutId, Cutout, FontOption, PosterLayoutId
 import { buildCaptionTokens, clampPct } from "./useCutoutLayout";
 
 const DUOTONE_PREVIEW_MAX_DIMENSION = 900;
-const CENTER_PAN = { x: 0.5, y: 0.5 };
 // Die-cut sticker border width, as a fraction of the cutout's own size --
 // scaling with the sticker (not a fixed px) keeps the border reading as the
 // same *proportion* of edge whether the sticker is tiny or huge. Shared
@@ -166,6 +165,9 @@ export interface PosterPreviewProps {
   stickerColor: string;
   pan: { x: number; y: number };
   onPanChange: (next: { x: number; y: number }) => void;
+  /** Independent crop position for the second photo in a duo collage. */
+  pan2: { x: number; y: number };
+  onPan2Change: (next: { x: number; y: number }) => void;
   zoom: number;
   layout: PosterLayoutId;
   duotoneEnabled: boolean;
@@ -206,6 +208,8 @@ export function PosterPreview({
   stickerColor,
   pan,
   onPanChange,
+  pan2,
+  onPan2Change,
   zoom,
   layout,
   duotoneEnabled,
@@ -226,7 +230,7 @@ export function PosterPreview({
   const dragState = useRef<{ id: string; startX: number; startY: number; originXPct: number; originYPct: number } | null>(
     null,
   );
-  const panDragState = useRef<{ startX: number; startY: number; originPanX: number; originPanY: number } | null>(null);
+  const panDragState = useRef<{ slot: 1 | 2; startX: number; startY: number; originPanX: number; originPanY: number } | null>(null);
 
   const isDuo = collageLayoutId !== "single";
 
@@ -355,12 +359,10 @@ export function PosterPreview({
   const paneBoxW = collageLayoutId === "duo-h" ? boxSize.w / 2 : boxSize.w;
   const paneBoxH = collageLayoutId === "duo-v" ? boxSize.h / 2 : boxSize.h;
 
-  const geometry = computeCoverGeometry(paneBoxW, paneBoxH, natural.w, natural.h, isDuo ? CENTER_PAN : pan, zoom);
-  // The second photo doesn't get its own drag-to-pan handle (two
-  // independently-dragged crops inside one small preview box got confusing
-  // fast) -- it always centers within its pane, but still honors the shared
-  // zoom slider so both halves can be framed tighter together.
-  const geometry2 = computeCoverGeometry(paneBoxW, paneBoxH, natural2.w, natural2.h, CENTER_PAN, zoom);
+  const geometry = computeCoverGeometry(paneBoxW, paneBoxH, natural.w, natural.h, pan, zoom);
+  // Each photo in a duo collage has its own crop position (drag within its
+  // own pane); the zoom slider is still shared.
+  const geometry2 = computeCoverGeometry(paneBoxW, paneBoxH, natural2.w, natural2.h, pan2, zoom);
   const squareXPct = boxSize.w ? (squareSizePx / boxSize.w) * 100 : 0;
   const squareYPct = boxSize.h ? (squareSizePx / boxSize.h) * 100 : 0;
 
@@ -371,26 +373,28 @@ export function PosterPreview({
   // of it the "cover" crop shows -- separate from the cutout-square drag
   // above since it's attached to a different element (squares sit on top
   // and capture their own pointer events first, so there's no conflict).
-  // Disabled in duo mode (see geometry/geometry2 above -- both photos stay
-  // centered on their own pane there).
-  function handlePhotoPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
-    if (locked || isDuo || !boxSize.w || !boxSize.h) return;
+  // In a duo collage each pane drags its own photo independently.
+  function handlePhotoPointerDown(e: ReactPointerEvent<HTMLDivElement>, slot: 1 | 2) {
+    if (locked || !boxSize.w || !boxSize.h) return;
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    panDragState.current = { startX: e.clientX, startY: e.clientY, originPanX: pan.x, originPanY: pan.y };
+    const origin = slot === 1 ? pan : pan2;
+    panDragState.current = { slot, startX: e.clientX, startY: e.clientY, originPanX: origin.x, originPanY: origin.y };
   }
 
   function handlePhotoPointerMove(e: ReactPointerEvent<HTMLDivElement>) {
     const drag = panDragState.current;
     if (!drag) return;
-    const slackX = geometry.renderedW - paneBoxW;
-    const slackY = geometry.renderedH - paneBoxH;
+    const geom = drag.slot === 1 ? geometry : geometry2;
+    const current = drag.slot === 1 ? pan : pan2;
+    const slackX = geom.renderedW - paneBoxW;
+    const slackY = geom.renderedH - paneBoxH;
     const dx = e.clientX - drag.startX;
     const dy = e.clientY - drag.startY;
     // Dragging right should reveal more of the image's left side (the
     // image visually follows the cursor), so pan decreases as dx increases.
-    const nextX = slackX > 0 ? clamp01(drag.originPanX - dx / slackX) : pan.x;
-    const nextY = slackY > 0 ? clamp01(drag.originPanY - dy / slackY) : pan.y;
-    onPanChange({ x: nextX, y: nextY });
+    const nextX = slackX > 0 ? clamp01(drag.originPanX - dx / slackX) : current.x;
+    const nextY = slackY > 0 ? clamp01(drag.originPanY - dy / slackY) : current.y;
+    (drag.slot === 1 ? onPanChange : onPan2Change)({ x: nextX, y: nextY });
   }
 
   function handlePhotoPointerUp() {
@@ -596,7 +600,7 @@ export function PosterPreview({
     url: string | null,
     displayUrl: string | null,
     geom: CoverGeometry,
-    draggable: boolean,
+    slot: 1 | 2,
     onUpload: () => void,
     onDrop: (files: FileList) => void,
     error: string | null,
@@ -624,16 +628,16 @@ export function PosterPreview({
     }
     return (
       <div
-        onPointerDown={draggable ? handlePhotoPointerDown : undefined}
-        onPointerMove={draggable ? handlePhotoPointerMove : undefined}
-        onPointerUp={draggable ? handlePhotoPointerUp : undefined}
+        onPointerDown={(e) => handlePhotoPointerDown(e, slot)}
+        onPointerMove={handlePhotoPointerMove}
+        onPointerUp={handlePhotoPointerUp}
         className="absolute inset-0"
         style={{
           backgroundImage: `url(${displayUrl})`,
           backgroundSize: `${geom.renderedW}px ${geom.renderedH}px`,
           backgroundPosition: `${geom.offsetX}px ${geom.offsetY}px`,
           backgroundRepeat: "no-repeat",
-          cursor: draggable && !locked ? "grab" : "default",
+          cursor: locked ? "default" : "grab",
         }}
       />
     );
@@ -650,14 +654,14 @@ export function PosterPreview({
       {isDuo ? (
         <>
           <div className="relative min-h-0 min-w-0 flex-1">
-            {photoPane(imageUrl, displayImageUrl, geometry, false, onRequestUpload, onFilesDropped, uploadError, true)}
+            {photoPane(imageUrl, displayImageUrl, geometry, 1, onRequestUpload, onFilesDropped, uploadError, true)}
           </div>
           <div className="relative min-h-0 min-w-0 flex-1">
-            {photoPane(imageUrl2, displayImageUrl2, geometry2, false, onRequestUpload2, onFilesDropped2, uploadError2, false)}
+            {photoPane(imageUrl2, displayImageUrl2, geometry2, 2, onRequestUpload2, onFilesDropped2, uploadError2, false)}
           </div>
         </>
       ) : (
-        photoPane(imageUrl, displayImageUrl, geometry, true, onRequestUpload, onFilesDropped, uploadError, true)
+        photoPane(imageUrl, displayImageUrl, geometry, 1, onRequestUpload, onFilesDropped, uploadError, true)
       )}
       {imageUrl && cutouts.map((cutout) => renderSticker(cutout))}
       {/* Overlay layouts nest the text band *inside* the photo zone (as its

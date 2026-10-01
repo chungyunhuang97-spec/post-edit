@@ -110,7 +110,7 @@ export interface ToolRailProps {
  * panel so the canvas gets the whole height back. */
 export function ToolRail({ activeTab, onSelect, sizeLabel, onChangeSize, onExport, exporting, missingPhotos }: ToolRailProps) {
   return (
-    <nav className="flex w-14 shrink-0 flex-col items-center border-r border-line bg-surface py-2" aria-label="編輯工具">
+    <nav className="flex w-12 shrink-0 flex-col items-center border-r border-line bg-surface py-2" aria-label="編輯工具">
       <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto">
         {TOOLS.map((tool) => {
           const active = activeTab === tool.id;
@@ -121,7 +121,7 @@ export function ToolRail({ activeTab, onSelect, sizeLabel, onChangeSize, onExpor
               title={tool.title}
               aria-pressed={active}
               onClick={() => onSelect(active ? null : tool.id)}
-              className={`flex h-[52px] w-12 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl text-[10px] font-medium transition ${
+              className={`flex h-[52px] w-11 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl text-[10px] font-medium transition ${
                 active ? "accent-fill" : "text-ink-muted hover:bg-surface-2 hover:text-ink"
               }`}
             >
@@ -137,7 +137,7 @@ export function ToolRail({ activeTab, onSelect, sizeLabel, onChangeSize, onExpor
           type="button"
           onClick={onChangeSize}
           title={`${sizeLabel}・點擊變更尺寸`}
-          className="flex h-[44px] w-12 flex-col items-center justify-center gap-0.5 rounded-xl text-[10px] font-medium text-ink-muted transition hover:bg-surface-2 hover:text-ink"
+          className="flex h-[44px] w-11 flex-col items-center justify-center gap-0.5 rounded-xl text-[10px] font-medium text-ink-muted transition hover:bg-surface-2 hover:text-ink"
         >
           <Icon>
             <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
@@ -149,7 +149,7 @@ export function ToolRail({ activeTab, onSelect, sizeLabel, onChangeSize, onExpor
           disabled={exporting}
           onClick={onExport}
           title={missingPhotos ? "還有照片尚未上傳" : "匯出 PNG"}
-          className={`accent-shadow flex h-[52px] w-12 flex-col items-center justify-center gap-0.5 rounded-xl accent-fill text-[10px] font-semibold transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none ${
+          className={`accent-shadow flex h-[52px] w-11 flex-col items-center justify-center gap-0.5 rounded-xl accent-fill text-[10px] font-semibold transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none ${
             missingPhotos ? "opacity-50" : ""
           }`}
         >
@@ -526,7 +526,7 @@ export function ToolPanel(props: ToolPanelProps) {
                     onChange={(e) => onZoomChange(Number(e.target.value))}
                   />
                   <span className="text-[11px] text-ink-faint">
-                    {isDuo ? "雙張照片皆置中裁切，兩張共用同一個縮放" : "直接拖曳上方預覽的照片可調整顯示位置"}
+                    {isDuo ? "兩張照片可各自拖曳調整位置，共用同一個縮放" : "直接拖曳上方預覽的照片可調整顯示位置"}
                   </span>
                 </label>
               )}
