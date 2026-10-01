@@ -31,6 +31,22 @@ import { ALL_FEATURES, DEFAULT_DECOR } from "./types";
 import { randomizeCutouts, resetCutoutColors, resizeCutouts, setCutoutColor, wordCountOf } from "./useCutoutLayout";
 
 const DEFAULT_CUTOUT_COUNT = 6;
+// Phone bottom sheet height, as % of the screen height: the default, the
+// limits the handle can drag between (so neither the poster nor the
+// controls can be squeezed out), and where the chosen height is remembered.
+const SHEET_DEFAULT = 44;
+const SHEET_MIN = 24;
+const SHEET_MAX = 72;
+const SHEET_STORAGE_KEY = "photo-poster.sheetHeight";
+
+function readStoredSheetHeight(): number {
+  try {
+    const v = Number(window.localStorage.getItem(SHEET_STORAGE_KEY));
+    return v >= SHEET_MIN && v <= SHEET_MAX ? v : SHEET_DEFAULT;
+  } catch {
+    return SHEET_DEFAULT;
+  }
+}
 // Where freshly generated free-placed layers land, in % of the poster.
 const TILE_REGION = { x0: 8, y0: 10, x1: 92, y1: 90 };
 const DOT_REGION = { x0: 5, y0: 5, x1: 95, y1: 95 };
@@ -76,6 +92,8 @@ export function PhotoPosterTool() {
   // Which tool's adjustment panel is open under the canvas (null = closed,
   // canvas gets the full height).
   const [activeTab, setActiveTab] = useState<TabId | null>(null);
+  const [sheetHeight, setSheetHeight] = useState(() => (typeof window === "undefined" ? SHEET_DEFAULT : readStoredSheetHeight()));
+  const sheetDrag = useRef<{ startY: number; startH: number } | null>(null);
   // Independent colors, each named for what it actually paints, so none of
   // them silently drives something unrelated when the layout changes (e.g.
   // in a two-photo collage there's no "top zone", and the caption band
@@ -548,6 +566,28 @@ export function PhotoPosterTool() {
     subjectMask,
   ]);
 
+  // Dragging the handle above the panel resizes it (phones only); the
+  // poster refits itself into whatever height is left.
+  function handleSheetDown(e: React.PointerEvent<HTMLDivElement>) {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    sheetDrag.current = { startY: e.clientY, startH: sheetHeight };
+  }
+  function handleSheetMove(e: React.PointerEvent<HTMLDivElement>) {
+    const d = sheetDrag.current;
+    if (!d) return;
+    const next = d.startH + ((d.startY - e.clientY) / window.innerHeight) * 100;
+    setSheetHeight(Math.min(SHEET_MAX, Math.max(SHEET_MIN, next)));
+  }
+  function handleSheetUp() {
+    if (!sheetDrag.current) return;
+    sheetDrag.current = null;
+    try {
+      window.localStorage.setItem(SHEET_STORAGE_KEY, String(Math.round(sheetHeight)));
+    } catch {
+      // remembering the height is a nicety; ignore blocked storage
+    }
+  }
+
   const visibleTabs: TabId[] = [
     "layout",
     "style",
@@ -610,22 +650,20 @@ export function PhotoPosterTool() {
         onChange={(e) => void handleFileList2(e.target.files)}
       />
 
-      {/* The main menu and a tool's panel never show together: opening a tool
-          swaps the menu for that tool's controls (with a back button), which
-          sit under the poster on a phone and in a one-third side column on
-          wider screens, so the poster keeps the rest of the screen. */}
-      {!activeTab && (
-        <ToolRail
-          visibleTabs={visibleTabs}
-          activeTab={activeTab}
-          onSelect={setActiveTab}
-          sizeLabel={`${preset.label} ${preset.width} × ${preset.height}`}
-          onChangeSize={() => setPreset(null)}
-          onExport={handleExportClick}
-          exporting={exporting}
-          missingPhotos={missingPhotos}
-        />
-      )}
+      {/* Phone: opening a tool swaps the main menu for that tool's controls
+          (with a back button) under the poster. Wider screens have room for
+          both: the menu stays, and the controls take a one-third column
+          beside it, leaving the poster the rest. */}
+      <ToolRail
+        visibleTabs={visibleTabs}
+        activeTab={activeTab}
+        onSelect={setActiveTab}
+        sizeLabel={`${preset.label} ${preset.width} × ${preset.height}`}
+        onChangeSize={() => setPreset(null)}
+        onExport={handleExportClick}
+        exporting={exporting}
+        missingPhotos={missingPhotos}
+      />
 
       <div className="order-1 flex min-h-0 min-w-0 flex-1 flex-col md:order-2">
       <div ref={previewWrapCallbackRef} className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-2">
@@ -687,7 +725,24 @@ export function PhotoPosterTool() {
       </div>
 
       {activeTab && (
-        <div className="order-2 h-[44dvh] min-h-0 shrink-0 border-t border-line bg-surface md:order-1 md:h-auto md:w-1/3 md:min-w-[300px] md:max-w-[440px] md:border-r md:border-t-0">
+        <div
+          className="order-2 flex h-[var(--sheet-h)] min-h-0 shrink-0 flex-col border-t border-line bg-surface md:order-1 md:h-auto md:w-1/3 md:min-w-[300px] md:max-w-[440px] md:border-r md:border-t-0"
+          style={{ "--sheet-h": `${sheetHeight}dvh` } as React.CSSProperties}
+        >
+          <div
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label="拖曳調整面板高度"
+            className="flex h-5 shrink-0 cursor-row-resize touch-none items-center justify-center md:hidden"
+            onPointerDown={handleSheetDown}
+            onPointerMove={handleSheetMove}
+            onPointerUp={handleSheetUp}
+            onPointerCancel={handleSheetUp}
+            onDoubleClick={() => setSheetHeight(SHEET_DEFAULT)}
+          >
+            <span className="h-1 w-10 rounded-full bg-line" />
+          </div>
+          <div className="min-h-0 flex-1">
           <ToolPanel
             activeTab={activeTab}
             onClose={() => setActiveTab(null)}
@@ -778,6 +833,7 @@ export function PhotoPosterTool() {
             onSubjectHalftoneEnabledChange={setSubjectHalftoneEnabled}
             subjectHalftoneStatus={subjectHalftoneStatus}
           />
+          </div>
         </div>
       )}
     </div>

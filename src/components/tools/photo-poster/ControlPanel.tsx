@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { BRACKET_OPTIONS, FONT_OPTIONS, LAYOUT_OPTIONS, SHAPE_OPTIONS, STICKER_STYLE_OPTIONS } from "./constants";
 import { STYLE_PRESETS } from "./stylePresets";
 import type {
@@ -113,12 +113,17 @@ export interface ToolRailProps {
   missingPhotos: boolean;
 }
 
-/** The always-visible vertical toolbar down the left edge. Picking a tool
- * opens its adjustment panel under the canvas; picking it again closes the
- * panel so the canvas gets the whole height back. */
+/** The vertical toolbar down the left edge. Picking a tool opens its panel
+ * (under the canvas on a phone, where the toolbar steps aside until the
+ * panel's back button is used; as a side column on wider screens, where the
+ * toolbar stays so tools can be switched directly). Picking the open tool
+ * again closes it. */
 export function ToolRail({ visibleTabs, activeTab, onSelect, sizeLabel, onChangeSize, onExport, exporting, missingPhotos }: ToolRailProps) {
   return (
-    <nav className="flex w-12 shrink-0 flex-col items-center border-r border-line bg-surface py-2" aria-label="編輯工具">
+    <nav
+      className={`${activeTab ? "hidden md:flex" : "flex"} w-12 shrink-0 flex-col items-center border-r border-line bg-surface py-2`}
+      aria-label="編輯工具"
+    >
       <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto">
         {TOOLS.filter((tool) => visibleTabs.includes(tool.id)).map((tool) => {
           const active = activeTab === tool.id;
@@ -193,6 +198,25 @@ const FEATURE_LABELS: [keyof StyleFeatures, string][] = [
 ];
 
 const fieldClass = "rounded-md border border-line bg-surface-2 px-2 py-1.5 text-ink";
+
+/** Secondary explanation under a control. On a phone it shows one line to
+ * keep the panel compact; tapping it expands the full text. On wider
+ * screens there is room, so it is always shown in full. */
+function Desc({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span
+      className={`text-ink-faint md:cursor-default ${open ? "" : "max-md:line-clamp-1"}`}
+      onClick={(e) => {
+        // Inside a toggle's <label>: expand without flipping the checkbox.
+        e.preventDefault();
+        setOpen((o) => !o);
+      }}
+    >
+      {children}
+    </span>
+  );
+}
 
 function SectionTitle({ children }: { children: ReactNode }) {
   return <h3 className="text-[11px] font-semibold uppercase tracking-wider text-ink-faint">{children}</h3>;
@@ -545,7 +569,7 @@ export function ToolPanel(props: ToolPanelProps) {
           disabled={exporting}
           onClick={onExport}
           title={missingPhotos ? "還有照片尚未上傳" : "匯出 PNG"}
-          className={`flex h-8 shrink-0 items-center gap-1 rounded-full accent-fill px-3 text-xs font-semibold transition hover:opacity-90 disabled:opacity-40 ${
+          className={`flex h-8 shrink-0 items-center gap-1 rounded-full accent-fill px-3 text-xs font-semibold transition hover:opacity-90 disabled:opacity-40 md:hidden ${
             missingPhotos ? "opacity-50" : ""
           }`}
         >
@@ -553,7 +577,7 @@ export function ToolPanel(props: ToolPanelProps) {
         </button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 md:py-4">
         {activeTab === "layout" && (
           <div className="flex flex-col gap-5">
             <section className="flex flex-col gap-3">
@@ -594,23 +618,16 @@ export function ToolPanel(props: ToolPanelProps) {
               {isDuo && !imageUrl2 && <p className="text-[11px] text-ink-faint">兩張照片都上傳後才能匯出。</p>}
 
               {imageUrl && (
-                <label className="flex flex-col gap-1">
-                  <span className="flex justify-between text-xs text-ink-muted">
-                    <span>照片縮放</span>
-                    <span>{zoom.toFixed(1)}x</span>
-                  </span>
-                  <input
+                <div className="flex flex-col gap-1"><label className="grid grid-cols-[5.5rem_1fr_3rem] items-center gap-2 text-xs text-ink-muted"><span>照片縮放</span><input
                     type="range"
                     min={1}
                     max={3}
                     step={0.1}
                     value={zoom}
                     onChange={(e) => onZoomChange(Number(e.target.value))}
-                  />
-                  <span className="text-[11px] text-ink-faint">
+                  /><span className="text-right tabular-nums">{zoom.toFixed(1)}x</span></label><span className="text-[11px] text-ink-faint">
                     {isDuo ? "兩張照片可各自拖曳調整位置，共用同一個縮放" : "直接拖曳上方預覽的照片可調整顯示位置"}
-                  </span>
-                </label>
+                  </span></div>
               )}
             </section>
 
@@ -675,20 +692,14 @@ export function ToolPanel(props: ToolPanelProps) {
             {features.frame && (
             <section className="flex flex-col gap-3">
               <SectionTitle>外框</SectionTitle>
-              <label className="flex flex-col gap-1">
-                <span className="flex justify-between text-xs text-ink-muted">
-                  <span>外框粗細</span>
-                  <span>{decor.frameInsetPct === 0 ? "無" : `${decor.frameInsetPct}%`}</span>
-                </span>
-                <input
+              <label className="grid grid-cols-[5.5rem_1fr_3rem] items-center gap-2 text-xs text-ink-muted"><span>外框粗細</span><input
                   type="range"
                   min={0}
                   max={10}
                   step={0.5}
                   value={decor.frameInsetPct}
                   onChange={(e) => onDecorChange({ frameInsetPct: Number(e.target.value) })}
-                />
-              </label>
+                /><span className="text-right tabular-nums">{decor.frameInsetPct === 0 ? "無" : `${decor.frameInsetPct}%`}</span></label>
               {decor.frameInsetPct > 0 && (
                 <ColorField
                   label={linkedColor ? "主色（外框、剪影、文案底色一起變）" : "外框顏色"}
@@ -703,8 +714,10 @@ export function ToolPanel(props: ToolPanelProps) {
 
         {activeTab === "style" && (
           <div className="flex flex-col gap-3">
-            <p className="text-xs text-ink-faint">左右滑動挑選，一鍵套用整組風格，套用後仍可微調。</p>
-            <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2">
+            <p className="text-xs text-ink-faint">
+              <span className="md:hidden">左右滑動挑選，</span>一鍵套用整組風格，套用後仍可微調。
+            </p>
+            <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 md:mx-0 md:flex-col md:gap-2 md:overflow-visible md:px-0 md:pb-0">
               {STYLE_PRESETS.map((sp) => {
                 const thumb = styleThumbs[sp.id];
                 const active = activeStyleId === sp.id;
@@ -713,10 +726,10 @@ export function ToolPanel(props: ToolPanelProps) {
                     key={sp.id}
                     type="button"
                     onClick={() => onApplyStylePreset(sp)}
-                    className={`flex w-[104px] shrink-0 snap-start flex-col gap-1.5 text-left transition ${active ? "" : "opacity-90 hover:opacity-100"}`}
+                    className={`flex w-[104px] shrink-0 snap-start flex-col gap-1.5 text-left transition md:w-full md:flex-row md:items-center md:gap-3 ${active ? "" : "opacity-90 hover:opacity-100"}`}
                   >
                     <span
-                      className={`block aspect-[4/5] w-full overflow-hidden rounded-md border-2 bg-surface-2 ${
+                      className={`block aspect-[4/5] w-full overflow-hidden rounded-md border-2 bg-surface-2 md:w-20 md:shrink-0 ${
                         active ? "border-accent" : "border-line"
                       }`}
                     >
@@ -769,7 +782,7 @@ export function ToolPanel(props: ToolPanelProps) {
               <label className="flex items-center justify-between gap-3 text-xs text-ink-muted">
                 <span className="flex flex-col gap-0.5">
                   <span className="font-medium text-ink">雙色調</span>
-                  <span className="text-ink-faint">把照片重新上色成「暗部色＋亮部色」兩種顏色</span>
+                  <Desc>把照片重新上色成「暗部色＋亮部色」兩種顏色</Desc>
                 </span>
                 <input
                   type="checkbox"
@@ -789,7 +802,7 @@ export function ToolPanel(props: ToolPanelProps) {
               <label className="flex items-center justify-between gap-3 text-xs text-ink-muted">
                 <span className="flex flex-col gap-0.5">
                   <span className="font-medium text-ink">顆粒質感</span>
-                  <span className="text-ink-faint">整張海報疊加底片顆粒</span>
+                  <Desc>整張海報疊加底片顆粒</Desc>
                 </span>
                 <input
                   type="checkbox"
@@ -799,20 +812,14 @@ export function ToolPanel(props: ToolPanelProps) {
                 />
               </label>
               {grainEnabled && (
-                <label className="flex flex-col gap-1">
-                  <span className="flex justify-between text-xs text-ink-muted">
-                    <span>顆粒濃度</span>
-                    <span>{grainIntensity}%</span>
-                  </span>
-                  <input
+                <label className="grid grid-cols-[5.5rem_1fr_3rem] items-center gap-2 text-xs text-ink-muted"><span>顆粒濃度</span><input
                     type="range"
                     min={0}
                     max={100}
                     step={5}
                     value={grainIntensity}
                     onChange={(e) => onGrainIntensityChange(Number(e.target.value))}
-                  />
-                </label>
+                  /><span className="text-right tabular-nums">{grainIntensity}%</span></label>
               )}
             </div>
           </div>
@@ -820,12 +827,12 @@ export function ToolPanel(props: ToolPanelProps) {
 
         {activeTab === "caption" && (
           <div className="flex flex-col gap-3">
-            <label className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-muted">
+            <label className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-2 px-3 py-1.5 text-xs text-ink-muted md:py-2">
               <span className="flex flex-col gap-0.5">
                 <span className="font-medium text-ink">顯示文案</span>
-                <span className="text-ink-faint">
+                <Desc>
                   {isDuo ? "雙張照片一律鋪滿畫布，文案是疊在照片上的色帶" : "關閉後照片鋪滿整張畫布，不顯示任何文字"}
-                </span>
+                </Desc>
               </span>
               <input
                 type="checkbox"
@@ -862,10 +869,10 @@ export function ToolPanel(props: ToolPanelProps) {
                 )}
 
                 {features.showText && (
-                <label className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-muted">
+                <label className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-2 px-3 py-1.5 text-xs text-ink-muted md:py-2">
                   <span className="flex flex-col gap-0.5">
                     <span className="font-medium text-ink">顯示文字</span>
-                    <span className="text-ink-faint">關閉後只留下色塊與圖形窗口，不顯示任何字</span>
+                    <Desc>關閉後只留下色塊與圖形窗口，不顯示任何字</Desc>
                   </span>
                   <input
                     type="checkbox"
@@ -877,12 +884,12 @@ export function ToolPanel(props: ToolPanelProps) {
                 )}
 
                 {features.windows && decor.captionMode === "flow" && (
-                <label className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-muted">
+                <label className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-2 px-3 py-1.5 text-xs text-ink-muted md:py-2">
                   <span className="flex flex-col gap-0.5">
                     <span className="font-medium text-ink">文字旁顯示圖形窗口</span>
-                    <span className="text-ink-faint">
+                    <Desc>
                       {shapesEnabled ? "圖形會以小照片窗口的樣子穿插在文字之間" : "需要先到「圖形」分頁開啟「顯示圖形」"}
-                    </span>
+                    </Desc>
                   </span>
                   <input
                     type="checkbox"
@@ -920,7 +927,7 @@ export function ToolPanel(props: ToolPanelProps) {
                   <label className="flex items-center justify-between gap-3 text-xs text-ink-muted">
                     <span className="flex flex-col gap-0.5">
                       <span className="font-medium text-ink">主體網點</span>
-                      <span className="text-ink-faint">用網點畫出照片裡偵測到的主體（人物/動物等）輪廓，取代文案底色</span>
+                      <Desc>用網點畫出照片裡偵測到的主體（人物/動物等）輪廓，取代文案底色</Desc>
                     </span>
                     <input
                       type="checkbox"
@@ -947,11 +954,10 @@ export function ToolPanel(props: ToolPanelProps) {
           <div className="flex flex-col gap-4">
             {features.shapes && (
             <>
-            <SectionTitle>形狀貼紙</SectionTitle>
-            <label className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-muted">
+            <label className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-2 px-3 py-1.5 text-xs text-ink-muted md:py-2">
               <span className="flex flex-col gap-0.5">
                 <span className="font-medium text-ink">顯示圖形</span>
-                <span className="text-ink-faint">關閉後畫布與文案裡都不會出現圖形，設定仍會保留</span>
+                <Desc>關閉後畫布與文案裡都不會出現圖形，設定仍會保留</Desc>
               </span>
               <input
                 type="checkbox"
@@ -963,33 +969,21 @@ export function ToolPanel(props: ToolPanelProps) {
             {shapesEnabled && (
               <>
             {!imageUrl && <p className="text-xs text-ink-faint">上傳照片後，圖形才會出現在畫布上。</p>}
-            <label className="flex flex-col gap-1">
-              <span className="flex justify-between text-xs text-ink-muted">
-                <span>圖形數量</span>
-                <span>{cutouts.length}</span>
-              </span>
-              <input
+            <label className="grid grid-cols-[5.5rem_1fr_3rem] items-center gap-2 text-xs text-ink-muted"><span>圖形數量</span><input
                 type="range"
                 min={1}
                 max={14}
                 value={cutouts.length}
                 onChange={(e) => onCutoutCountChange(Number(e.target.value))}
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="flex justify-between text-xs text-ink-muted">
-                <span>圖形大小</span>
-                <span>{scaleMultiplier.toFixed(1)}x</span>
-              </span>
-              <input
+              /><span className="text-right tabular-nums">{cutouts.length}</span></label>
+            <label className="grid grid-cols-[5.5rem_1fr_3rem] items-center gap-2 text-xs text-ink-muted"><span>圖形大小</span><input
                 type="range"
                 min={0.5}
                 max={4}
                 step={0.1}
                 value={scaleMultiplier}
                 onChange={(e) => onScaleChange(Number(e.target.value))}
-              />
-            </label>
+              /><span className="text-right tabular-nums">{scaleMultiplier.toFixed(1)}x</span></label>
             <label className="flex flex-col gap-1">
               <span className="text-xs text-ink-muted">圖形形狀</span>
               <select value={shapeId} onChange={(e) => onShapeChange(e.target.value as ShapeId)} className={fieldClass}>
@@ -1079,11 +1073,11 @@ export function ToolPanel(props: ToolPanelProps) {
 
             {features.tiles && (
             <>
-            <SectionTitle>小照片</SectionTitle>
-            <label className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-muted">
+            <div className="border-t border-line" />
+            <label className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-2 px-3 py-1.5 text-xs text-ink-muted md:py-2">
               <span className="flex flex-col gap-0.5">
                 <span className="font-medium text-ink">顯示小照片</span>
-                <span className="text-ink-faint">把照片的不同局部裁成幾張小照片，擺在畫面上（可拖曳）</span>
+                <Desc>把照片的不同局部裁成幾張小照片，擺在畫面上（可拖曳）</Desc>
               </span>
               <input
                 type="checkbox"
@@ -1094,13 +1088,7 @@ export function ToolPanel(props: ToolPanelProps) {
             </label>
             {decor.tilesEnabled && (
               <>
-                <label className="flex flex-col gap-1">
-                  <span className="flex justify-between text-xs text-ink-muted">
-                    <span>小照片數量</span>
-                    <span>{tiles.length}</span>
-                  </span>
-                  <input type="range" min={1} max={8} value={tiles.length} onChange={(e) => onTileCountChange(Number(e.target.value))} />
-                </label>
+                <label className="grid grid-cols-[5.5rem_1fr_3rem] items-center gap-2 text-xs text-ink-muted"><span>小照片數量</span><input type="range" min={1} max={8} value={tiles.length} onChange={(e) => onTileCountChange(Number(e.target.value))} /><span className="text-right tabular-nums">{tiles.length}</span></label>
                 <div className="flex flex-col gap-2">
                   <span className="text-xs text-ink-muted">在畫布上拖曳小照片時</span>
                   <Segmented<"move" | "crop">
@@ -1115,20 +1103,14 @@ export function ToolPanel(props: ToolPanelProps) {
                     <span className="text-[11px] text-ink-faint">小照片會出現綠色外框，拖曳它可以移動裡面顯示的照片區塊</span>
                   )}
                 </div>
-                <label className="flex flex-col gap-1">
-                  <span className="flex justify-between text-xs text-ink-muted">
-                    <span>小照片放大</span>
-                    <span>{tileZoom.toFixed(1)}x</span>
-                  </span>
-                  <input
+                <label className="grid grid-cols-[5.5rem_1fr_3rem] items-center gap-2 text-xs text-ink-muted"><span>小照片放大</span><input
                     type="range"
                     min={0.6}
                     max={4}
                     step={0.1}
                     value={tileZoom}
                     onChange={(e) => onTileZoomChange(Number(e.target.value))}
-                  />
-                </label>
+                  /><span className="text-right tabular-nums">{tileZoom.toFixed(1)}x</span></label>
                 <label className="flex items-center justify-between gap-3 text-xs text-ink-muted">
                   <span>顯示編號 (1)(2)…</span>
                   <input
@@ -1152,11 +1134,11 @@ export function ToolPanel(props: ToolPanelProps) {
 
             {features.dots && (
             <>
-            <SectionTitle>圓點</SectionTitle>
-            <label className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-muted">
+            <div className="border-t border-line" />
+            <label className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-2 px-3 py-1.5 text-xs text-ink-muted md:py-2">
               <span className="flex flex-col gap-0.5">
                 <span className="font-medium text-ink">顯示圓點</span>
-                <span className="text-ink-faint">散落在畫面上的純色圓點（可拖曳）</span>
+                <Desc>散落在畫面上的純色圓點（可拖曳）</Desc>
               </span>
               <input
                 type="checkbox"
@@ -1167,26 +1149,14 @@ export function ToolPanel(props: ToolPanelProps) {
             </label>
             {decor.dotsEnabled && (
               <>
-                <label className="flex flex-col gap-1">
-                  <span className="flex justify-between text-xs text-ink-muted">
-                    <span>圓點數量</span>
-                    <span>{dots.length}</span>
-                  </span>
-                  <input type="range" min={1} max={12} value={dots.length} onChange={(e) => onDotCountChange(Number(e.target.value))} />
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="flex justify-between text-xs text-ink-muted">
-                    <span>圓點大小</span>
-                    <span>{decor.dotSizePx}px</span>
-                  </span>
-                  <input
+                <label className="grid grid-cols-[5.5rem_1fr_3rem] items-center gap-2 text-xs text-ink-muted"><span>圓點數量</span><input type="range" min={1} max={12} value={dots.length} onChange={(e) => onDotCountChange(Number(e.target.value))} /><span className="text-right tabular-nums">{dots.length}</span></label>
+                <label className="grid grid-cols-[5.5rem_1fr_3rem] items-center gap-2 text-xs text-ink-muted"><span>圓點大小</span><input
                     type="range"
                     min={6}
                     max={48}
                     value={decor.dotSizePx}
                     onChange={(e) => onDecorChange({ dotSizePx: Number(e.target.value) })}
-                  />
-                </label>
+                  /><span className="text-right tabular-nums">{decor.dotSizePx}px</span></label>
                 <div className="flex flex-wrap gap-2">
                   {dots.map((dot, i) => (
                     <label
@@ -1218,12 +1188,12 @@ export function ToolPanel(props: ToolPanelProps) {
 
             {features.silhouette && (
             <>
-            <SectionTitle>主體剪影</SectionTitle>
+            <div className="border-t border-line" />
             <div className="flex flex-col gap-2 rounded-md border border-line bg-surface-2 px-3 py-2">
               <label className="flex items-center justify-between gap-3 text-xs text-ink-muted">
                 <span className="flex flex-col gap-0.5">
                   <span className="font-medium text-ink">主體填成純色剪影</span>
-                  <span className="text-ink-faint">偵測第一張照片裡的人物/動物，把輪廓填成單一顏色</span>
+                  <Desc>偵測第一張照片裡的人物/動物，把輪廓填成單一顏色</Desc>
                 </span>
                 <input
                   type="checkbox"
@@ -1285,48 +1255,30 @@ export function ToolPanel(props: ToolPanelProps) {
               </label>
               )}
             </div>
-            <label className="flex flex-col gap-1">
-              <span className="flex justify-between text-xs text-ink-muted">
-                <span>字級</span>
-                <span>{baseFontSizePx}px</span>
-              </span>
-              <input
+            <label className="grid grid-cols-[5.5rem_1fr_3rem] items-center gap-2 text-xs text-ink-muted"><span>字級</span><input
                 type="range"
                 min={12}
                 max={28}
                 value={baseFontSizePx}
                 onChange={(e) => onFontSizeChange(Number(e.target.value))}
-              />
-            </label>
+              /><span className="text-right tabular-nums">{baseFontSizePx}px</span></label>
             {decor.captionMode === "flow" && (
             <>
-            <label className="flex flex-col gap-1">
-              <span className="flex justify-between text-xs text-ink-muted">
-                <span>行距</span>
-                <span>{lineHeightMultiplier.toFixed(1)}</span>
-              </span>
-              <input
+            <label className="grid grid-cols-[5.5rem_1fr_3rem] items-center gap-2 text-xs text-ink-muted"><span>行距</span><input
                 type="range"
                 min={1}
                 max={2.2}
                 step={0.1}
                 value={lineHeightMultiplier}
                 onChange={(e) => onLineHeightChange(Number(e.target.value))}
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="flex justify-between text-xs text-ink-muted">
-                <span>字距</span>
-                <span>{letterSpacingPx}px</span>
-              </span>
-              <input
+              /><span className="text-right tabular-nums">{lineHeightMultiplier.toFixed(1)}</span></label>
+            <label className="grid grid-cols-[5.5rem_1fr_3rem] items-center gap-2 text-xs text-ink-muted"><span>字距</span><input
                 type="range"
                 min={-2}
                 max={10}
                 value={letterSpacingPx}
                 onChange={(e) => onLetterSpacingChange(Number(e.target.value))}
-              />
-            </label>
+              /><span className="text-right tabular-nums">{letterSpacingPx}px</span></label>
             </>
             )}
             <ColorField label="文字顏色" value={textColor} onChange={onTextColorChange} />
