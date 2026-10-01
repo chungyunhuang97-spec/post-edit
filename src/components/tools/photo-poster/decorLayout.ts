@@ -6,7 +6,8 @@ function makeId(prefix: string) {
   return `${prefix}-${idCounter}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
-/** A region of the poster, in % of its content area. */
+/** A region of the caption zone (the whole poster when there is none),
+ * in % of that zone. */
 export interface Region {
   x0: number;
   y0: number;
@@ -21,14 +22,14 @@ const TILE_ASPECTS = [1, 0.75, 1.33, 0.8, 1];
 
 /** Lays `count` small photos out inside `region` as a loose staggered
  * grid -- jittered rather than random, so they read as deliberately placed
- * prints and never pile on top of each other. `canvasAspect` (poster
+ * prints and never pile on top of each other. `zoneAspect` (zone
  * width / height) converts widths into the matching height in % so the
  * rows can be spaced correctly. Crops are drawn from `photoCount` source
  * photos in rotation, each from a different part of the picture. */
 export function makeTiles(
   count: number,
   region: Region,
-  canvasAspect: number,
+  zoneAspect: number,
   photoCount: number,
   aspects: number[] = TILE_ASPECTS,
 ): Tile[] {
@@ -44,9 +45,9 @@ export function makeTiles(
     const aspect = aspects[i % aspects.length];
     // Fit inside the cell: limited by cell width, and by cell height
     // (converted to width via the aspect ratios).
-    const maxWByHeight = ((cellH * 0.82) * aspect) / canvasAspect;
+    const maxWByHeight = ((cellH * 0.82) * aspect) / zoneAspect;
     const wPct = Math.min(cellW * 0.78, maxWByHeight);
-    const hPct = (wPct / aspect) * canvasAspect;
+    const hPct = (wPct / aspect) * zoneAspect;
     // Stagger odd columns downward and jitter slightly.
     const stagger = col % 2 === 1 ? cellH * 0.12 : 0;
     tiles.push({
@@ -129,9 +130,9 @@ export function usesOverlayText(mode: CaptionMode): boolean {
 /** Re-deals which source photo each tile shows after the number of
  * uploaded photos changes (and adds tiles if there are fewer tiles than
  * photos), so every photo the user has uploaded appears at least once. */
-export function assignTilePhotos(tiles: Tile[], photoCount: number, canvasAspect: number, region: Region): Tile[] {
+export function assignTilePhotos(tiles: Tile[], photoCount: number, zoneAspect: number, region: Region): Tile[] {
   if (tiles.length === 0) return tiles;
   const all = [...tiles];
-  if (all.length < photoCount) all.push(...makeTiles(photoCount - all.length, region, canvasAspect, photoCount));
+  if (all.length < photoCount) all.push(...makeTiles(photoCount - all.length, region, zoneAspect, photoCount));
   return all.map((t, i) => ({ ...t, photo: (photoCount > 1 ? i % 2 : 0) as 0 | 1 }));
 }

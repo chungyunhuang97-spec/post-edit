@@ -56,6 +56,10 @@ export const COLLAGE_OPTIONS: CollageOption[] = [
   { id: "duo-v", label: "雙張照片・上下並排" },
 ];
 
+// Shape size = this base x the 圖形大小 multiplier -- deliberately NOT tied
+// to the caption's font size, so changing the text size never resizes shapes.
+export const SHAPE_BASE_PX = 16;
+
 export const STICKER_STYLE_OPTIONS: StickerStyleOption[] = [
   { id: "flat", label: "純色", sublabel: "單一顏色填滿" },
   { id: "halftone", label: "網點印刷", sublabel: "照片轉成 riso 網點" },

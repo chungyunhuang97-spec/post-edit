@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { OVERLAY_BAND_FRACTION, TOP_ZONE_FRACTION } from "./constants";
-import { applyDuotone } from "./duotone";
 import { drawFilmGrain } from "./grain";
-import { drawSubjectHalftone } from "./subjectHalftone";
 import type { SubjectMask } from "./subjectSegmentation";
 import { captionWords, cornerLines, tileSourceRect } from "./decorLayout";
 import { drawSilhouette } from "./silhouette";
+import { buildSubjectCutout } from "./subjectCutout";
+import { computeZones } from "./zones";
 import type {
   BracketOption,
   CollageLayoutId,
@@ -24,7 +24,6 @@ import type {
 import { drawHalftoneTile, locateInPane, stickerSourceRect, type CropGeom } from "./stickerCrop";
 import { buildCaptionTokens, clampPct } from "./useCutoutLayout";
 
-const DUOTONE_PREVIEW_MAX_DIMENSION = 900;
 interface CoverGeometry {
   boxW: number;
   boxH: number;
@@ -84,46 +83,6 @@ function useNaturalSize(imageUrl: string | null): { w: number; h: number } {
   return natural;
 }
 
-/** Recolors a photo into a two-tone dark/light duotone (see duotone.ts)
- * whenever `enabled`, returning the resulting blob URL -- shared by both
- * the primary and the collage-mode second photo. Runs at a capped working
- * resolution since the live preview never needs full photo resolution. */
-function useDuotoneUrl(
-  imageUrl: string | null,
-  natural: { w: number; h: number },
-  enabled: boolean,
-  darkColor: string,
-  lightColor: string,
-): string | null {
-  const [url, setUrl] = useState<string | null>(null);
-  useEffect(() => {
-    // No explicit "reset to null" here when disabled -- callers already
-    // ignore this url whenever `enabled` is false, so a stale (and by then
-    // already-revoked, via this same effect's own cleanup on the *previous*
-    // run) URL sitting unused in state is harmless, and re-enabling later
-    // just overwrites it with a fresh one.
-    if (!enabled || !imageUrl || !natural.w || !natural.h) return;
-    let cancelled = false;
-    let objectUrl: string | null = null;
-    const img = new Image();
-    img.onload = () => {
-      if (cancelled) return;
-      const canvas = applyDuotone(img, natural.w, natural.h, darkColor, lightColor, DUOTONE_PREVIEW_MAX_DIMENSION);
-      canvas.toBlob((blob) => {
-        if (cancelled || !blob) return;
-        objectUrl = URL.createObjectURL(blob);
-        setUrl(objectUrl);
-      });
-    };
-    img.src = imageUrl;
-    return () => {
-      cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [enabled, imageUrl, natural.w, natural.h, darkColor, lightColor]);
-  return url;
-}
-
 export interface PosterPreviewProps {
   canvasRef: React.RefObject<HTMLDivElement | null>;
   imageUrl: string | null;
@@ -166,19 +125,20 @@ export interface PosterPreviewProps {
   wordPositions: WordPos[];
   onWordPositionsChange: (next: WordPos[]) => void;
   zoom: number;
+  /** Second photo's own zoom in a duo collage. */
+  zoom2: number;
   layout: PosterLayoutId;
-  duotoneEnabled: boolean;
-  duotoneDark: string;
-  duotoneLight: string;
   grainEnabled: boolean;
   grainIntensity: number;
-  subjectHalftoneEnabled: boolean;
   subjectMask: SubjectMask | null;
+  /** Subject of the second photo (duo collage). */
+  subjectMask2: SubjectMask | null;
+  onDecorChange: (patch: Partial<DecorState>) => void;
   onRequestUpload: () => void;
   onFilesDropped: (files: FileList) => void;
 }
 
-/** The detected subject of the first photo, painted as a flat color shape
+/** The detected subject of a photo, painted as a flat color shape
  * (see silhouette.ts), aligned with that photo's cover-fit placement. */
 function SilhouetteCanvas({
   mask,
@@ -186,7 +146,11 @@ function SilhouetteCanvas({
   width,
   height,
   geom,
+  left = 0,
+  top = 0,
 }: {
+  left?: number;
+  top?: number;
   mask: SubjectMask;
   color: string;
   width: number;
@@ -214,10 +178,38 @@ function SilhouetteCanvas({
   return (
     <canvas
       ref={ref}
-      className="pointer-events-none absolute left-0 top-0"
-      style={{ width, height }}
+      className="pointer-events-none absolute"
+      style={{ width, height, left, top }}
     />
   );
+}
+
+/** The cut-out subject (see subjectCutout.ts) drawn into a canvas that
+ * scales to whatever size the poster is shown at. */
+function PastedSubject({
+  canvas: source,
+  style,
+  handlers,
+}: {
+  canvas: HTMLCanvasElement;
+  style: React.CSSProperties;
+  handlers: {
+    onPointerDown: (e: ReactPointerEvent<HTMLCanvasElement>) => void;
+    onPointerMove: (e: ReactPointerEvent<HTMLCanvasElement>) => void;
+    onPointerUp: () => void;
+  };
+}) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    canvas.width = source.width;
+    canvas.height = source.height;
+    const ctx = canvas.getContext("2d");
+    ctx?.clearRect(0, 0, canvas.width, canvas.height);
+    ctx?.drawImage(source, 0, 0);
+  }, [source]);
+  return <canvas ref={ref} className="pointer-events-auto absolute" style={style} {...handlers} />;
 }
 
 /** Loads a URL into an HTMLImageElement (null until ready) so canvas
@@ -317,14 +309,13 @@ export function PosterPreview({
   wordPositions,
   onWordPositionsChange,
   zoom,
+  zoom2,
   layout,
-  duotoneEnabled,
-  duotoneDark,
-  duotoneLight,
   grainEnabled,
   grainIntensity,
-  subjectHalftoneEnabled,
   subjectMask,
+  subjectMask2,
+  onDecorChange,
   onRequestUpload,
   onFilesDropped,
 }: PosterPreviewProps) {
@@ -356,9 +347,8 @@ export function PosterPreview({
     originU: number;
     originV: number;
   } | null>(null);
+  const subjectDrag = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
   const grainCanvasRef = useRef<HTMLCanvasElement>(null);
-  const [textZoneSize, setTextZoneSize] = useState({ w: 0, h: 0 });
-  const subjectHalftoneCanvasRef = useRef<HTMLCanvasElement>(null);
   const dragState = useRef<{ id: string; startX: number; startY: number; originXPct: number; originYPct: number } | null>(
     null,
   );
@@ -397,14 +387,8 @@ export function PosterPreview({
     boxObserverRef.current = observer;
   }, []);
 
-  const duotoneUrl = useDuotoneUrl(imageUrl, natural, duotoneEnabled, duotoneDark, duotoneLight);
-  const duotoneUrl2 = useDuotoneUrl(imageUrl2, natural2, duotoneEnabled, duotoneDark, duotoneLight);
-
-  // Falls back to the plain photo while the duotone recolor is still being
-  // computed (async, one extra frame or two) so toggling it on doesn't
-  // flash the photo away for an instant.
-  const displayImageUrl = duotoneEnabled ? (duotoneUrl ?? imageUrl) : imageUrl;
-  const displayImageUrl2 = duotoneEnabled ? (duotoneUrl2 ?? imageUrl2) : imageUrl2;
+  const displayImageUrl = imageUrl;
+  const displayImageUrl2 = imageUrl2;
   const imageEl = useImageElement(displayImageUrl);
   const imageEl2 = useImageElement(displayImageUrl2);
 
@@ -437,55 +421,6 @@ export function PosterPreview({
     drawFilmGrain(ctx, canvas.width, canvas.height, grainIntensity / 100);
   }, [grainEnabled, grainIntensity, frameSize]);
 
-  // Same callback-ref reasoning as bottomZoneRef above -- the text zone's
-  // div moves between being canvasRef's direct sibling and being nested
-  // inside the photo zone across the overlay/non-overlay layout switch, so
-  // a plain useRef+useEffect([]) would silently stop tracking its size
-  // after the first such switch.
-  const textZoneObserverRef = useRef<ResizeObserver | null>(null);
-  const textZoneRef = useCallback((el: HTMLDivElement | null) => {
-    textZoneObserverRef.current?.disconnect();
-    textZoneObserverRef.current = null;
-    if (!el) return;
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (!entry) return;
-      const { width: w, height: h } = entry.contentRect;
-      setTextZoneSize({ w, h });
-    });
-    observer.observe(el);
-    textZoneObserverRef.current = observer;
-  }, []);
-
-  // Renders a dot-matrix silhouette of whatever subjectMask detected in the
-  // photo (see subjectSegmentation.ts) behind the caption text, instead of
-  // that zone's plain background -- subjectMask itself is computed once
-  // per photo up in PhotoPosterTool.tsx (segmentation is comparatively
-  // slow and shared with the export path), this effect only handles
-  // drawing it at the text zone's current size.
-  useEffect(() => {
-    if (!subjectHalftoneEnabled || !subjectMask || !imageUrl || !textZoneSize.w || !textZoneSize.h) return;
-    const canvas = subjectHalftoneCanvasRef.current;
-    if (!canvas) return;
-    let cancelled = false;
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = textZoneSize.w * dpr;
-    canvas.height = textZoneSize.h * dpr;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const img = new Image();
-    img.onload = () => {
-      if (cancelled) return;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, textZoneSize.w, textZoneSize.h);
-      drawSubjectHalftone(ctx, img, subjectMask, { x: 0, y: 0, w: textZoneSize.w, h: textZoneSize.h }, shape.id, textColor);
-    };
-    img.src = imageUrl;
-    return () => {
-      cancelled = true;
-    };
-  }, [subjectHalftoneEnabled, subjectMask, imageUrl, textZoneSize, shape.id, textColor]);
-
   // In a duo collage, each photo only ever fills its own half of the photo
   // zone -- halved on whichever axis the split runs along, full-size on the
   // other. In single mode this collapses back to the full box, so `geometry`
@@ -495,8 +430,8 @@ export function PosterPreview({
 
   const geometry = computeCoverGeometry(paneBoxW, paneBoxH, natural.w, natural.h, pan, zoom);
   // Each photo in a duo collage has its own crop position (drag within its
-  // own pane); the zoom slider is still shared.
-  const geometry2 = computeCoverGeometry(paneBoxW, paneBoxH, natural2.w, natural2.h, pan2, zoom);
+  // own pane) and its own zoom.
+  const geometry2 = computeCoverGeometry(paneBoxW, paneBoxH, natural2.w, natural2.h, pan2, zoom2);
   const squareXPct = boxSize.w ? (squareSizePx / boxSize.w) * 100 : 0;
   const squareYPct = boxSize.h ? (squareSizePx / boxSize.h) * 100 : 0;
 
@@ -678,6 +613,12 @@ export function PosterPreview({
   // the "click to upload" target in the photo zone stays visible even for
   // looks that would otherwise let the paper cover the whole poster.
   const fraction = decor.captionFraction == null ? null : imageUrl ? decor.captionFraction : Math.min(decor.captionFraction, 0.5);
+  // Free-placed items (small photos, dots, scattered words) are positioned
+  // as % of the caption zone -- the whole poster when there is none -- so
+  // they follow it when its size or position changes.
+  const zoneRect = captionEnabled
+    ? computeZones(layout, contentSize.w, contentSize.h, fraction).text
+    : { x: 0, y: 0, w: contentSize.w, h: contentSize.h };
   const bandFraction = fraction ?? OVERLAY_BAND_FRACTION;
   const splitFraction = fraction ?? TOP_ZONE_FRACTION;
   const bandInset = `${((1 - bandFraction) / 2) * 100}%`;
@@ -695,7 +636,6 @@ export function PosterPreview({
   const textZone = (
     <div
       key="text"
-      ref={textZoneRef}
       data-role="top-zone"
       className={`relative isolate flex flex-shrink-0 flex-wrap content-center items-center justify-center gap-x-1 gap-y-2 overflow-hidden px-[6%] py-[7%] ${isOverlay ? "z-10" : ""}`}
       style={{
@@ -707,13 +647,6 @@ export function PosterPreview({
         ...overlayTextStyle,
       }}
     >
-      {subjectHalftoneEnabled && subjectMask && (
-        <canvas
-          ref={subjectHalftoneCanvasRef}
-          className="pointer-events-none absolute inset-0 -z-10"
-          style={{ width: "100%", height: "100%" }}
-        />
-      )}
       {flowText &&
         tokens.map((token, i) =>
           token.kind === "word" ? (
@@ -810,6 +743,17 @@ export function PosterPreview({
       {decor.silhouetteEnabled && subjectMask && imageUrl && (
         <SilhouetteCanvas mask={subjectMask} color={decor.silhouetteColor} width={paneBoxW} height={paneBoxH} geom={geometry} />
       )}
+      {decor.silhouetteEnabled && isDuo && subjectMask2 && imageUrl2 && (
+        <SilhouetteCanvas
+          mask={subjectMask2}
+          color={decor.silhouetteColor}
+          width={paneBoxW}
+          height={paneBoxH}
+          geom={geometry2}
+          left={collageLayoutId === "duo-h" ? paneBoxW : 0}
+          top={collageLayoutId === "duo-v" ? paneBoxH : 0}
+        />
+      )}
       {imageUrl && cutouts.map((cutout) => renderSticker(cutout))}
       {/* Overlay layouts nest the text band *inside* the photo zone (as its
           absolutely positioned child) rather than as a canvasEl-level
@@ -838,16 +782,16 @@ export function PosterPreview({
     originU = 0,
     originV = 0,
   ) {
-    if (locked || !contentSize.w || !contentSize.h) return;
+    if (locked || !zoneRect.w || !zoneRect.h) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     overlayDrag.current = { kind, id, index, startX: e.clientX, startY: e.clientY, originX, originY, originU, originV };
   }
 
   function moveOverlayDrag(e: ReactPointerEvent<HTMLElement>) {
     const d = overlayDrag.current;
-    if (!d || !contentSize.w || !contentSize.h) return;
-    const x = d.originX + ((e.clientX - d.startX) / contentSize.w) * 100;
-    const y = d.originY + ((e.clientY - d.startY) / contentSize.h) * 100;
+    if (!d || !zoneRect.w || !zoneRect.h) return;
+    const x = d.originX + ((e.clientX - d.startX) / zoneRect.w) * 100;
+    const y = d.originY + ((e.clientY - d.startY) / zoneRect.h) * 100;
     if (d.kind === "tile" && decor.tileDragMode === "crop") {
       // Pan which part of the source photo the tile shows (the content
       // follows the finger), leaving the tile itself where it is.
@@ -855,7 +799,7 @@ export function PosterPreview({
       if (!t) return;
       const nat = t.photo === 1 && imageUrl2 ? natural2 : natural;
       if (!nat.w || !nat.h) return;
-      const tw = (t.wPct / 100) * contentSize.w;
+      const tw = (t.wPct / 100) * zoneRect.w;
       const th = tw / t.aspect;
       const r = tileSourceRect(t, nat.w, nat.h);
       const halfU = r.sw / nat.w / 2;
@@ -869,14 +813,14 @@ export function PosterPreview({
       onTilesChange(
         tiles.map((t) =>
           t.id === d.id
-            ? { ...t, xPct: clampPct(x, t.wPct), yPct: clampPct(y, ((t.wPct / t.aspect) * contentSize.w) / contentSize.h) }
+            ? { ...t, xPct: clampPct(x, t.wPct), yPct: clampPct(y, ((t.wPct / t.aspect) * zoneRect.w) / zoneRect.h) }
             : t,
         ),
       );
     } else if (d.kind === "dot") {
-      onDotsChange(dots.map((dot) => (dot.id === d.id ? { ...dot, xPct: clampPct(x, 0), yPct: clampPct(y, 0) } : dot)));
+      onDotsChange(dots.map((dot) => (dot.id === d.id ? { ...dot, xPct: Math.min(140, Math.max(-40, x)), yPct: Math.min(140, Math.max(-40, y)) } : dot)));
     } else {
-      onWordPositionsChange(wordPositions.map((w, i) => (i === d.index ? { xPct: clampPct(x, 0), yPct: clampPct(y, 0) } : w)));
+      onWordPositionsChange(wordPositions.map((w, i) => (i === d.index ? { xPct: Math.min(120, Math.max(-20, x)), yPct: Math.min(120, Math.max(-20, y)) } : w)));
     }
   }
 
@@ -891,7 +835,7 @@ export function PosterPreview({
     const useSecond = tile.photo === 1 && !!imageUrl2;
     const url = useSecond ? displayImageUrl2 : displayImageUrl;
     const nat = useSecond ? natural2 : natural;
-    const tw = (tile.wPct / 100) * contentSize.w;
+    const tw = (tile.wPct / 100) * zoneRect.w;
     const th = tw / tile.aspect;
     let bg: React.CSSProperties = { backgroundColor: "#d4d4d8" };
     if (url && nat.w && nat.h && tw > 0) {
@@ -935,9 +879,56 @@ export function PosterPreview({
     );
   }
 
+  // The subject cut out of its photo and pasted elsewhere (positions are %
+  // of the poster's content area, independent of the caption zone).
+  const pasteUseSecond = decor.subjectPastePhoto === 1 && !!imageEl2 && !!subjectMask2;
+  const pasteSource = pasteUseSecond ? imageEl2 : imageEl;
+  const pasteMask = pasteUseSecond ? subjectMask2 : subjectMask;
+  const pastedCut =
+    decor.silhouetteEnabled && decor.subjectPaste && pasteSource && pasteMask ? buildSubjectCutout(pasteSource, pasteMask) : null;
+  const pasteW = (decor.subjectPasteW / 100) * contentSize.w;
+  const pastedLayer = pastedCut && contentSize.w > 0 && (
+    <div className="pointer-events-none absolute inset-0 z-[16] overflow-hidden">
+      <PastedSubject
+        canvas={pastedCut.canvas}
+        style={{
+          left: `${decor.subjectPasteX}%`,
+          top: `${decor.subjectPasteY}%`,
+          width: pasteW,
+          height: pasteW / pastedCut.aspect,
+          cursor: locked ? "default" : "grab",
+          filter: "drop-shadow(0 4px 8px rgba(0,0,0,0.4))",
+          touchAction: "none",
+        }}
+        handlers={{
+          onPointerDown: (e) => {
+            if (locked || !contentSize.w) return;
+            e.currentTarget.setPointerCapture(e.pointerId);
+            subjectDrag.current = { startX: e.clientX, startY: e.clientY, originX: decor.subjectPasteX, originY: decor.subjectPasteY };
+          },
+          onPointerMove: (e) => {
+            const d = subjectDrag.current;
+            if (!d || !contentSize.w || !contentSize.h) return;
+            onDecorChange({
+              subjectPasteX: Math.min(110, Math.max(-30, d.originX + ((e.clientX - d.startX) / contentSize.w) * 100)),
+              subjectPasteY: Math.min(110, Math.max(-30, d.originY + ((e.clientY - d.startY) / contentSize.h) * 100)),
+            });
+          },
+          onPointerUp: () => {
+            subjectDrag.current = null;
+          },
+        }}
+      />
+    </div>
+  );
+
   const words = showOverlayText && decor.captionMode === "scatter" ? captionWords(caption) : [];
   const overlayLayer = (
     <div className="pointer-events-none absolute inset-0 z-[15] overflow-hidden" style={{ color: textColor }}>
+      <div
+        className="absolute"
+        style={{ left: zoneRect.x, top: zoneRect.y, width: zoneRect.w, height: zoneRect.h }}
+      >
       {decor.tilesEnabled && imageUrl && tiles.map((tile, i) => renderTile(tile, i))}
       {decor.dotsEnabled &&
         dots.map((dot) => (
@@ -998,6 +989,7 @@ export function PosterPreview({
           ))}
         </div>
       )}
+      </div>
     </div>
   );
 
@@ -1031,6 +1023,7 @@ export function PosterPreview({
       >
         {fullBleed ? photoZone : textFirst ? [textZone, photoZone] : [photoZone, textZone]}
         {overlayLayer}
+        {pastedLayer}
       </div>
       {grainOverlay}
     </div>

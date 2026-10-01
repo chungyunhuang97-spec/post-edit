@@ -139,11 +139,10 @@ export interface StyleFeatures {
   frame: boolean;
   /** Flow / corner / scatter text arrangement. */
   captionMode: boolean;
-  /** The "words off, windows only" switch (no style needs it any more,
-   * since every look now shows its caption). */
-  showText: boolean;
+  /** Whether the caption block can be switched off altogether (looks built
+   * around it -- the paper, the colour block -- keep it). */
+  captionBlock: boolean;
   captionBg: boolean;
-  subjectHalftone: boolean;
   /** Cutout shapes: shape, size, count, style, colors. */
   shapes: boolean;
   /** The inline photo windows next to the words. */
@@ -158,9 +157,8 @@ export const ALL_FEATURES: StyleFeatures = {
   captionSize: true,
   frame: true,
   captionMode: true,
-  showText: false,
+  captionBlock: true,
   captionBg: true,
-  subjectHalftone: true,
   shapes: true,
   windows: true,
   tiles: true,
@@ -193,6 +191,10 @@ export interface StylePreset {
   captionEnabled?: boolean;
   /** The controls this style uses; the rest are hidden while it is active. */
   features: StyleFeatures;
+  /** Colours that must move together while this style is active: `frame`
+   * (frame, silhouette and caption block) or `sticker` (shapes follow the
+   * caption block's colour). */
+  linkedColors?: "frame" | "sticker";
   /** Frame, caption mode, silhouette... (merged over DEFAULT_DECOR). */
   decor?: Partial<DecorState>;
   /** Free-placed small photos, solid dots and scattered word anchors, each
@@ -276,6 +278,16 @@ export interface DecorState {
   /** Paints the detected subject of the first photo as a flat color shape. */
   silhouetteEnabled: boolean;
   silhouetteColor: string;
+  /** Also cuts the subject out and pastes it (with a white sticker border)
+   * elsewhere on the poster, leaving the flat silhouette where it was. */
+  subjectPaste: boolean;
+  /** Top-left of the pasted subject and its width, in % of the poster's
+   * content area. */
+  subjectPasteX: number;
+  subjectPasteY: number;
+  subjectPasteW: number;
+  /** Which photo the pasted subject is cut from. */
+  subjectPastePhoto: 0 | 1;
 }
 
 export const DEFAULT_DECOR: DecorState = {
@@ -292,4 +304,9 @@ export const DEFAULT_DECOR: DecorState = {
   dotSizePx: 16,
   silhouetteEnabled: false,
   silhouetteColor: "#c8102e",
+  subjectPaste: false,
+  subjectPasteX: 54,
+  subjectPasteY: 58,
+  subjectPasteW: 38,
+  subjectPastePhoto: 0,
 };

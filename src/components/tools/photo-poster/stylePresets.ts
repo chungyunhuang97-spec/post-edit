@@ -1,4 +1,5 @@
 import { makeDots, makeTiles, makeWordPositions } from "./decorLayout";
+import { zoneAspectOf } from "./zones";
 import { ALL_FEATURES, DEFAULT_DECOR } from "./types";
 import type {
   BracketStyleId,
@@ -34,14 +35,14 @@ export const STYLE_PRESETS: StylePreset[] = [
     layout: "photo-top",
     captionBgColor: "#f3e9da",
     textColor: "#3d2f22",
-    scaleMultiplier: 0.9,
+    scaleMultiplier: 1.1,
     baseFontSizePx: 20,
     lineHeightMultiplier: 1.6,
     letterSpacingPx: 0,
     grainEnabled: true,
     grainIntensity: 16,
     cutoutCount: 5,
-    features: { ...NO_FEATURES, captionPosition: true, captionSize: true, captionBg: true, shapes: true, windows: true },
+    features: { ...NO_FEATURES, captionBlock: true, captionPosition: true, captionSize: true, captionBg: true, shapes: true, windows: true },
   },
   {
     id: "sticker-dump",
@@ -53,7 +54,7 @@ export const STYLE_PRESETS: StylePreset[] = [
     layout: "photo-top",
     captionBgColor: "#ff5fa2",
     textColor: "#fffbe8",
-    scaleMultiplier: 2,
+    scaleMultiplier: 2.5,
     baseFontSizePx: 20,
     lineHeightMultiplier: 1.4,
     letterSpacingPx: 0,
@@ -63,7 +64,7 @@ export const STYLE_PRESETS: StylePreset[] = [
     stickerStyleId: "flat",
     decor: { captionFraction: 0.2, inlineWindows: false },
     palette: ["#ff5fa2", "#ffd23f", "#3ddc97", "#5b7fff", "#ff8a3d", "#c86bff", "#2fe0d0"],
-    features: { ...NO_FEATURES, captionPosition: true, captionSize: true, captionBg: true, shapes: true },
+    features: { ...NO_FEATURES, captionBlock: true, captionPosition: true, captionSize: true, captionBg: true, shapes: true },
   },
   {
     id: "cutout-block",
@@ -75,7 +76,7 @@ export const STYLE_PRESETS: StylePreset[] = [
     layout: "text-top",
     captionBgColor: "#d6232a",
     textColor: "#fff1ea",
-    scaleMultiplier: 2.4,
+    scaleMultiplier: 3,
     baseFontSizePx: 20,
     lineHeightMultiplier: 1.4,
     letterSpacingPx: 0,
@@ -84,6 +85,7 @@ export const STYLE_PRESETS: StylePreset[] = [
     cutoutCount: 2,
     stickerStyleId: "flat",
     decor: { captionFraction: 0.3 },
+    linkedColors: "sticker",
     features: { ...NO_FEATURES, captionSize: true, captionBg: true, shapes: true, windows: true },
   },
   {
@@ -105,8 +107,10 @@ export const STYLE_PRESETS: StylePreset[] = [
     cutoutCount: 3,
     shapesEnabled: false,
     decor: { captionMode: "corner", tilesEnabled: true, tileNumbered: true, dotsEnabled: true, dotSizePx: 16 },
-    tiles: { count: 4, region: { x0: 53, y0: 15, x1: 97, y1: 92 } },
-    dots: { count: 5, region: { x0: 32, y0: 4, x1: 97, y1: 96 }, palette: JOURNAL_DOTS },
+    // Regions are % of the paper (the caption zone); the dots reach left
+    // past its edge so some of them overlap the photo, as in a journal page.
+    tiles: { count: 4, region: { x0: 8, y0: 15, x1: 94, y1: 90 } },
+    dots: { count: 5, region: { x0: -28, y0: 3, x1: 96, y1: 97 }, palette: JOURNAL_DOTS },
     features: { ...NO_FEATURES, captionSize: true, captionBg: true, tiles: true, dots: true },
   },
   {
@@ -150,7 +154,18 @@ export const STYLE_PRESETS: StylePreset[] = [
     grainIntensity: 30,
     cutoutCount: 3,
     shapesEnabled: false,
-    decor: { frameInsetPct: 5, frameColor: "#d3141b", silhouetteEnabled: true, silhouetteColor: "#d3141b", captionFraction: 0.2 },
+    decor: {
+      frameInsetPct: 5,
+      frameColor: "#d3141b",
+      silhouetteEnabled: true,
+      silhouetteColor: "#d3141b",
+      subjectPaste: true,
+      subjectPasteX: 56,
+      subjectPasteY: 60,
+      subjectPasteW: 36,
+      captionFraction: 0.2,
+    },
+    linkedColors: "frame",
     features: { ...NO_FEATURES, captionSize: true, frame: true, silhouette: true },
   },
 ];
@@ -192,6 +207,7 @@ export function buildStyleState(
     ...preset.decor,
     // The sticker/silhouette color defaults follow the preset's own ground.
   };
+  const zoneAspect = zoneAspectOf(preset.layout, decor.captionFraction, opts.canvasAspect, preset.captionEnabled ?? true);
   const cutouts = randomizeCutouts(preset.cutoutCount, wordCountOf(opts.caption)).map((c, i) => ({
     ...c,
     color: preset.palette ? preset.palette[i % preset.palette.length] : null,
@@ -221,7 +237,7 @@ export function buildStyleState(
       ? makeTiles(
           Math.max(preset.tiles.count, opts.photoCount),
           preset.tiles.region,
-          opts.canvasAspect,
+          zoneAspect,
           opts.photoCount,
           preset.tiles.aspects,
         )

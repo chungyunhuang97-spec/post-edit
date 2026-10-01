@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BRACKET_OPTIONS, FONT_OPTIONS, SHAPE_OPTIONS, generateSocialCaption } from "./constants";
+import { BRACKET_OPTIONS, FONT_OPTIONS, SHAPE_BASE_PX, SHAPE_OPTIONS, generateSocialCaption } from "./constants";
 import { assignTilePhotos, captionWords, makeDots, makeTiles, makeWordPositions } from "./decorLayout";
 import { CanvasSizeStep } from "./CanvasSizeStep";
 import { ToolPanel, ToolRail, type TabId } from "./ControlPanel";
@@ -11,7 +11,8 @@ import { analyzePhotoMood } from "./photoMood";
 import { PosterPreview } from "./PosterPreview";
 import { STYLE_PRESETS, buildStyleState } from "./stylePresets";
 import { useStyleThumbnails } from "./styleThumbnails";
-import { segmentSubject, type SubjectMask } from "./subjectSegmentation";
+import { useSubjectMask, type MaskStatus } from "./useSubjectMask";
+import { zoneAspectOf } from "./zones";
 import type {
   BracketStyleId,
   CanvasPreset,
@@ -38,6 +39,38 @@ const SHEET_DEFAULT = 44;
 const SHEET_MIN = 24;
 const SHEET_MAX = 72;
 const SHEET_STORAGE_KEY = "photo-poster.sheetHeight";
+
+/** The settings that make up "a style", reduced to one comparable string:
+ * used to tell whether the applied style has been tweaked since. Things
+ * that are placement or randomness (positions, which cutout lands where,
+ * the pasted subject's spot) are left out on purpose. */
+function styleSnapshot(v: {
+  shapeId: string;
+  bracketId: string;
+  fontOptionId: string;
+  layout: string;
+  captionBgColor: string;
+  textColor: string;
+  stickerColor: string;
+  scaleMultiplier: number;
+  baseFontSizePx: number;
+  lineHeightMultiplier: number;
+  letterSpacingPx: number;
+  grainEnabled: boolean;
+  grainIntensity: number;
+  stickerStyleId: string;
+  shapesEnabled: boolean;
+  captionEnabled: boolean;
+  decor: DecorState;
+  cutoutCount: number;
+  tileCount: number;
+  dotCount: number;
+}): string {
+  const { subjectPasteX, subjectPasteY, ...decorRest } = v.decor;
+  void subjectPasteX;
+  void subjectPasteY;
+  return JSON.stringify({ ...v, decor: decorRest });
+}
 
 function readStoredSheetHeight(): number {
   try {
@@ -101,11 +134,10 @@ export function PhotoPosterTool() {
   const [captionBgColor, setCaptionBgColor] = useState(DEFAULT_CAPTION_BG);
   const [textColor, setTextColor] = useState(DEFAULT_TEXT_COLOR);
   const [stickerColor, setStickerColor] = useState(DEFAULT_CAPTION_BG);
-  const [duotoneDark, setDuotoneDark] = useState(DEFAULT_CAPTION_BG);
-  const [duotoneLight, setDuotoneLight] = useState(DEFAULT_TEXT_COLOR);
   const [pan, setPan] = useState({ x: 0.5, y: 0.5 });
   const [pan2, setPan2] = useState({ x: 0.5, y: 0.5 });
   const [zoom, setZoom] = useState(1);
+  const [zoom2, setZoom2] = useState(1);
   const [exporting, setExporting] = useState(false);
   const [layout, setLayout] = useState<PosterLayoutId>("text-top");
   const [suggestingCaption, setSuggestingCaption] = useState(false);
@@ -119,24 +151,14 @@ export function PhotoPosterTool() {
   // With a style applied, only the controls it uses are listed; this brings
   // every control back.
   const [showAllFeatures, setShowAllFeatures] = useState(false);
+  // What the applied style looked like when applied (see styleSnapshot).
+  const [styleBaseline, setStyleBaseline] = useState<string | null>(null);
   const patchDecor = useCallback((patch: Partial<DecorState>) => setDecor((d) => ({ ...d, ...patch })), []);
-  const [duotoneEnabled, setDuotoneEnabled] = useState(false);
   const [grainEnabled, setGrainEnabled] = useState(false);
   const [grainIntensity, setGrainIntensity] = useState(30);
-  const [subjectHalftoneEnabled, setSubjectHalftoneEnabled] = useState(false);
-  const [subjectMask, setSubjectMask] = useState<SubjectMask | null>(null);
-  const [subjectHalftoneStatus, setSubjectHalftoneStatus] = useState<"idle" | "loading" | "ready" | "unavailable">(
-    "idle",
-  );
-
   const canvasRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef2 = useRef<HTMLInputElement>(null);
-  // Tracks which photo the current subjectMask (if any) was computed for,
-  // so switching photos or re-enabling the toggle only re-runs the
-  // (comparatively slow, model-download-gated) segmentation when it
-  // actually needs to -- not on every unrelated re-render.
-  const subjectMaskForUrlRef = useRef<string | null>(null);
 
   // The preview frame is letterboxed by hand: measure the available box and
   // compute an exact pixel size that preserves the poster's aspect ratio.
@@ -199,6 +221,9 @@ export function PhotoPosterTool() {
     [handleImageChange],
   );
 
+  // Small photos are sized against the caption zone's shape.
+  const zoneAspect = zoneAspectOf(layout, decor.captionFraction, canvasAspect, captionEnabled);
+
   const handleRequestUpload2 = useCallback(() => fileInputRef2.current?.click(), []);
 
   const handleFileList2 = useCallback(async (files: FileList | null) => {
@@ -212,9 +237,10 @@ export function PhotoPosterTool() {
     setUploadError2(null);
     setImageUrl2(result.url);
     setPan2({ x: 0.5, y: 0.5 });
+    setZoom2(1);
     // Every uploaded photo should show up in the small-photo layer too.
-    if (collageLayoutId !== "single") setTiles((prev) => assignTilePhotos(prev, 2, canvasAspect, TILE_REGION));
-  }, [collageLayoutId, canvasAspect]);
+    if (collageLayoutId !== "single") setTiles((prev) => assignTilePhotos(prev, 2, zoneAspect, TILE_REGION));
+  }, [collageLayoutId, zoneAspect]);
 
   useEffect(() => {
     function onPaste(e: ClipboardEvent) {
@@ -232,8 +258,9 @@ export function PhotoPosterTool() {
         if (intoSecond) {
           setUploadError2(null);
           setImageUrl2(result.url);
-          setTiles((prev) => assignTilePhotos(prev, 2, canvasAspect, TILE_REGION));
+          setTiles((prev) => assignTilePhotos(prev, 2, zoneAspect, TILE_REGION));
           setPan2({ x: 0.5, y: 0.5 });
+          setZoom2(1);
         } else {
           setUploadError(null);
           handleImageChange(result.url);
@@ -242,29 +269,23 @@ export function PhotoPosterTool() {
     }
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
-  }, [handleImageChange, collageLayoutId, imageUrl, imageUrl2, canvasAspect]);
+  }, [handleImageChange, collageLayoutId, imageUrl, imageUrl2, zoneAspect]);
 
-  // Runs subject segmentation (a client-side ML model, see
-  // subjectSegmentation.ts) only when the "主體網點" toggle is actually on
-  // -- someone who never touches it never triggers the model download --
-  // and only once per photo, since the result is reused by both the live
-  // preview and the export rather than segmenting twice.
-  useEffect(() => {
-    if (!(subjectHalftoneEnabled || decor.silhouetteEnabled) || !imageUrl) return;
-    if (subjectMaskForUrlRef.current === imageUrl) return;
-    subjectMaskForUrlRef.current = imageUrl;
-    setSubjectMask(null);
-    setSubjectHalftoneStatus("loading");
-    let cancelled = false;
-    segmentSubject(imageUrl).then((mask) => {
-      if (cancelled || subjectMaskForUrlRef.current !== imageUrl) return;
-      setSubjectMask(mask);
-      setSubjectHalftoneStatus(mask ? "ready" : "unavailable");
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [subjectHalftoneEnabled, decor.silhouetteEnabled, imageUrl]);
+  // Subject detection (a client-side ML model) runs only once a feature
+  // that needs it is switched on, once per photo; the preview and the
+  // export share the result.
+  const mask1 = useSubjectMask(imageUrl, decor.silhouetteEnabled);
+  const mask2 = useSubjectMask(collageLayoutId !== "single" ? imageUrl2 : null, decor.silhouetteEnabled);
+  const subjectMask = mask1.mask;
+  const subjectMask2 = mask2.mask;
+  const maskStatus: MaskStatus =
+    mask1.status === "loading" || mask2.status === "loading"
+      ? "loading"
+      : mask1.status === "ready" || mask2.status === "ready"
+        ? "ready"
+        : mask1.status === "unavailable" || mask2.status === "unavailable"
+          ? "unavailable"
+          : "idle";
 
   const handleCutoutCountChange = useCallback(
     (n: number) => {
@@ -292,7 +313,7 @@ export function PhotoPosterTool() {
 
   const handleCollageLayoutChange = useCallback((id: CollageLayoutId) => {
     setCollageLayoutId(id);
-    setTiles((prev) => assignTilePhotos(prev, id !== "single" && imageUrl2 ? 2 : 1, canvasAspect, TILE_REGION));
+    setTiles((prev) => assignTilePhotos(prev, id !== "single" && imageUrl2 ? 2 : 1, zoneAspect, TILE_REGION));
     if (id !== "single") {
       // The default scale was tuned for a sticker sitting inline within a
       // line of caption text -- against two full-bleed photos with no
@@ -303,7 +324,7 @@ export function PhotoPosterTool() {
       // choice.
       setScaleMultiplier((prev) => (prev <= 0.5 ? 1.4 : prev));
     }
-  }, [imageUrl2, canvasAspect]);
+  }, [imageUrl2, zoneAspect]);
 
   // Applies a full named look in one go -- every field a style preset
   // covers is overwritten (including a fresh cutout scatter/count, so the
@@ -318,6 +339,30 @@ export function PhotoPosterTool() {
         photoCount: collageLayoutId !== "single" && imageUrl2 ? 2 : 1,
       });
       setActiveStyleId(style.id);
+      setStyleBaseline(
+        styleSnapshot({
+          shapeId: st.shapeId,
+          bracketId: st.bracketId,
+          fontOptionId: st.fontOptionId,
+          layout: st.layout,
+          captionBgColor: st.captionBgColor,
+          textColor: st.textColor,
+          stickerColor: st.stickerColor,
+          scaleMultiplier: st.scaleMultiplier,
+          baseFontSizePx: st.baseFontSizePx,
+          lineHeightMultiplier: st.lineHeightMultiplier,
+          letterSpacingPx: st.letterSpacingPx,
+          grainEnabled: st.grainEnabled,
+          grainIntensity: st.grainIntensity,
+          stickerStyleId: st.stickerStyleId,
+          shapesEnabled: st.shapesEnabled,
+          captionEnabled: st.captionEnabled,
+          decor: st.decor,
+          cutoutCount: st.cutouts.length,
+          tileCount: st.tiles.length,
+          dotCount: st.dots.length,
+        }),
+      );
       setShapeId(st.shapeId);
       setBracketId(st.bracketId);
       setFontOptionId(st.fontOptionId);
@@ -325,14 +370,12 @@ export function PhotoPosterTool() {
       setCaptionBgColor(st.captionBgColor);
       setTextColor(st.textColor);
       setStickerColor(st.stickerColor);
-      setDuotoneEnabled(false);
       setScaleMultiplier(st.scaleMultiplier);
       setBaseFontSizePx(st.baseFontSizePx);
       setLineHeightMultiplier(st.lineHeightMultiplier);
       setLetterSpacingPx(st.letterSpacingPx);
       setGrainEnabled(st.grainEnabled);
       setGrainIntensity(st.grainIntensity);
-      setSubjectHalftoneEnabled(false);
       setStickerStyleId(st.stickerStyleId);
       setShapesEnabled(st.shapesEnabled);
       setCaptionEnabled(st.captionEnabled);
@@ -353,18 +396,18 @@ export function PhotoPosterTool() {
   const handleTilesEnabledChange = useCallback(
     (enabled: boolean) => {
       patchDecor({ tilesEnabled: enabled });
-      if (enabled && tiles.length === 0) setTiles(makeTiles(4, TILE_REGION, canvasAspect, photoCount));
+      if (enabled && tiles.length === 0) setTiles(makeTiles(4, TILE_REGION, zoneAspect, photoCount));
     },
      
-    [tiles.length, canvasAspect, photoCount, patchDecor],
+    [tiles.length, zoneAspect, photoCount, patchDecor],
   );
   const handleTileCountChange = useCallback(
     (n: number) =>
       setTiles((prev) =>
-        n <= prev.length ? prev.slice(0, n) : [...prev, ...makeTiles(n - prev.length, TILE_REGION, canvasAspect, photoCount)],
+        n <= prev.length ? prev.slice(0, n) : [...prev, ...makeTiles(n - prev.length, TILE_REGION, zoneAspect, photoCount)],
       ),
      
-    [canvasAspect, photoCount],
+    [zoneAspect, photoCount],
   );
   // k = how many times tighter than "half the photo" each small photo crops.
   const handleTileZoomChange = useCallback(
@@ -372,9 +415,9 @@ export function PhotoPosterTool() {
     [],
   );
   const handleShuffleTiles = useCallback(
-    () => setTiles((prev) => makeTiles(prev.length, TILE_REGION, canvasAspect, photoCount)),
+    () => setTiles((prev) => makeTiles(prev.length, TILE_REGION, zoneAspect, photoCount)),
      
-    [canvasAspect, photoCount],
+    [zoneAspect, photoCount],
   );
 
   const handleDotsEnabledChange = useCallback(
@@ -428,7 +471,35 @@ export function PhotoPosterTool() {
   const features = activeStyle && !showAllFeatures ? activeStyle.features : ALL_FEATURES;
   // 剪影填色 is one color story: frame, silhouette and caption block follow
   // a single "主色" so they can't drift apart.
-  const linkedColor = activeStyle?.id === "silhouette-frame" && !showAllFeatures;
+  const styleDirty =
+    !!activeStyle &&
+    styleBaseline !== null &&
+    styleBaseline !==
+      styleSnapshot({
+        shapeId,
+        bracketId,
+        fontOptionId,
+        layout,
+        captionBgColor,
+        textColor,
+        stickerColor,
+        scaleMultiplier,
+        baseFontSizePx,
+        lineHeightMultiplier,
+        letterSpacingPx,
+        grainEnabled,
+        grainIntensity,
+        stickerStyleId,
+        shapesEnabled,
+        captionEnabled,
+        decor,
+        cutoutCount: cutouts.length,
+        tileCount: tiles.length,
+        dotCount: dots.length,
+      });
+  const linkedColor = activeStyle?.linkedColors === "frame" && !showAllFeatures;
+  // 挖空色塊: the shapes are the same colour as the block they cut through.
+  const stickerLinked = activeStyle?.linkedColors === "sticker" && !showAllFeatures;
   const handleDecorChange = useCallback(
     (patch: Partial<DecorState>) => {
       let next = patch;
@@ -440,6 +511,13 @@ export function PhotoPosterTool() {
       if (patch.captionMode === "scatter") ensureWordPositions(captionWords(caption).length);
     },
     [patchDecor, ensureWordPositions, caption, linkedColor],
+  );
+  const handleCaptionBgChange = useCallback(
+    (hex: string) => {
+      setCaptionBgColor(hex);
+      if (stickerLinked) setStickerColor(hex);
+    },
+    [stickerLinked],
   );
   const handleCaptionChange = useCallback(
     (text: string) => {
@@ -498,7 +576,7 @@ export function PhotoPosterTool() {
         baseFontSizePx,
         lineHeightMultiplier,
         letterSpacingPx,
-        squareSizePx: baseFontSizePx * scaleMultiplier,
+        squareSizePx: SHAPE_BASE_PX * scaleMultiplier,
         fontFamily,
         previewWidthPx,
         pan,
@@ -508,14 +586,12 @@ export function PhotoPosterTool() {
         dots,
         wordPositions,
         zoom,
+        zoom2,
         layout,
-        duotoneEnabled,
-        duotoneDark,
-        duotoneLight,
         grainEnabled,
         grainIntensity,
-        subjectHalftoneEnabled,
         subjectMask,
+        subjectMask2,
       });
 
       const blob = await new Promise<Blob | null>((resolve) => posterCanvas.toBlob(resolve, "image/png"));
@@ -556,14 +632,12 @@ export function PhotoPosterTool() {
     dots,
     wordPositions,
     zoom,
+    zoom2,
     layout,
-    duotoneEnabled,
-    duotoneDark,
-    duotoneLight,
     grainEnabled,
     grainIntensity,
-    subjectHalftoneEnabled,
     subjectMask,
+    subjectMask2,
   ]);
 
   // Dragging the handle above the panel resizes it (phones only); the
@@ -592,7 +666,6 @@ export function PhotoPosterTool() {
     "layout",
     "style",
     "effects",
-    ...(features.shapes || features.tiles || features.dots || features.silhouette ? (["shapes"] as TabId[]) : []),
     "caption",
     "text",
   ];
@@ -612,7 +685,7 @@ export function PhotoPosterTool() {
   const fontOption = FONT_OPTIONS.find((f) => f.id === fontOptionId)!;
   const bracket = BRACKET_OPTIONS.find((b) => b.id === bracketId)!;
   const shape = SHAPE_OPTIONS.find((s) => s.id === shapeId)!;
-  const squareSizePx = baseFontSizePx * scaleMultiplier;
+  const squareSizePx = SHAPE_BASE_PX * scaleMultiplier;
 
   // Fit the poster's true aspect ratio inside whatever box the
   // ResizeObserver measured, capped on whichever axis is tighter. Falls
@@ -663,6 +736,8 @@ export function PhotoPosterTool() {
         onExport={handleExportClick}
         exporting={exporting}
         missingPhotos={missingPhotos}
+        locked={locked}
+        onToggleLocked={() => setLocked((v) => !v)}
       />
 
       <div className="order-1 flex min-h-0 min-w-0 flex-1 flex-col md:order-2">
@@ -708,14 +783,13 @@ export function PhotoPosterTool() {
             wordPositions={wordPositions}
             onWordPositionsChange={setWordPositions}
             zoom={zoom}
+            zoom2={zoom2}
             layout={layout}
-            duotoneEnabled={duotoneEnabled}
-            duotoneDark={duotoneDark}
-            duotoneLight={duotoneLight}
             grainEnabled={grainEnabled}
             grainIntensity={grainIntensity}
-            subjectHalftoneEnabled={subjectHalftoneEnabled}
             subjectMask={subjectMask}
+            subjectMask2={subjectMask2}
+            onDecorChange={patchDecor}
             onRequestUpload={handleRequestUpload}
             onFilesDropped={handleFileList}
           />
@@ -751,10 +825,12 @@ export function PhotoPosterTool() {
             exporting={exporting}
             missingPhotos={missingPhotos}
             features={features}
-            filtered={!!activeStyle}
             showAllFeatures={showAllFeatures}
             onShowAllFeaturesChange={setShowAllFeatures}
             linkedColor={linkedColor}
+            stickerLinked={stickerLinked}
+            styleDirty={styleDirty}
+            onRestoreStyle={() => activeStyle && handleApplyStylePreset(activeStyle)}
             styleThumbs={styleThumbs}
             activeStyleId={activeStyleId}
             decor={decor}
@@ -778,12 +854,8 @@ export function PhotoPosterTool() {
             onRequestUpload2={handleRequestUpload2}
             zoom={zoom}
             onZoomChange={setZoom}
-            duotoneEnabled={duotoneEnabled}
-            onDuotoneEnabledChange={setDuotoneEnabled}
-            duotoneDark={duotoneDark}
-            onDuotoneDarkChange={setDuotoneDark}
-            duotoneLight={duotoneLight}
-            onDuotoneLightChange={setDuotoneLight}
+            zoom2={zoom2}
+            onZoom2Change={setZoom2}
             grainEnabled={grainEnabled}
             onGrainEnabledChange={setGrainEnabled}
             grainIntensity={grainIntensity}
@@ -820,7 +892,7 @@ export function PhotoPosterTool() {
             bracketId={bracketId}
             onBracketChange={setBracketId}
             captionBgColor={captionBgColor}
-            onCaptionBgColorChange={setCaptionBgColor}
+            onCaptionBgColorChange={handleCaptionBgChange}
             textColor={textColor}
             onTextColorChange={setTextColor}
             layout={layout}
@@ -829,9 +901,7 @@ export function PhotoPosterTool() {
             onCollageLayoutChange={handleCollageLayoutChange}
             captionEnabled={captionEnabled}
             onCaptionEnabledChange={setCaptionEnabled}
-            subjectHalftoneEnabled={subjectHalftoneEnabled}
-            onSubjectHalftoneEnabledChange={setSubjectHalftoneEnabled}
-            subjectHalftoneStatus={subjectHalftoneStatus}
+            maskStatus={maskStatus}
           />
           </div>
         </div>

@@ -1,10 +1,8 @@
-import { OVERLAY_BAND_FRACTION, TOP_ZONE_FRACTION } from "./constants";
-import { applyDuotone } from "./duotone";
 import { drawFilmGrain } from "./grain";
-import { drawSubjectHalftone } from "./subjectHalftone";
 import type { SubjectMask } from "./subjectSegmentation";
 import { captionWords, cornerLines, tileSourceRect } from "./decorLayout";
 import { drawSilhouette } from "./silhouette";
+import { buildSubjectCutout } from "./subjectCutout";
 import type {
   BracketOption,
   CollageLayoutId,
@@ -19,14 +17,9 @@ import type {
 } from "./types";
 import { buildCaptionTokens } from "./useCutoutLayout";
 import { canvasShapePath } from "./shapes";
+import { computeZones, type ZoneRect } from "./zones";
 import { drawHalftoneTile, locateInPane, stickerSourceRect, type SourceRect } from "./stickerCrop";
 
-// The export renders at full poster resolution (often much larger than a
-// phone photo needs to be shown at), so the duotone pass caps its working
-// resolution well above the live preview's cap -- quality matters more
-// here than speed, but an uncapped multi-thousand-pixel DSLR photo would
-// still make the per-pixel recolor loop needlessly slow.
-const DUOTONE_EXPORT_MAX_DIMENSION = 3000;
 // Matches PosterPreview.tsx: in a duo collage neither photo gets a
 // drag-to-pan handle, so both simply center within their own half.
 interface CoverGeometry {
@@ -99,62 +92,6 @@ interface LineItem {
   width: number;
 }
 
-interface ZoneRect {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
-
-/** Mirrors PosterPreview.tsx's layout switch: the text zone and photo zone
- * sit top/bottom (either order), left/right (either order), or -- for the
- * two "overlay" layouts -- the photo fills the entire canvas and the text
- * zone is a centered band that gets painted on top of it afterward. */
-function computeZones(
-  layout: PosterLayoutId,
-  width: number,
-  height: number,
-  fraction: number | null,
-): { text: ZoneRect; photo: ZoneRect } {
-  if (layout === "overlay-h") {
-    const bandH = height * (fraction ?? OVERLAY_BAND_FRACTION);
-    return {
-      text: { x: 0, y: (height - bandH) / 2, w: width, h: bandH },
-      photo: { x: 0, y: 0, w: width, h: height },
-    };
-  }
-  if (layout === "overlay-v") {
-    const bandW = width * (fraction ?? OVERLAY_BAND_FRACTION);
-    return {
-      text: { x: (width - bandW) / 2, y: 0, w: bandW, h: height },
-      photo: { x: 0, y: 0, w: width, h: height },
-    };
-  }
-
-  const isRow = layout === "split-left" || layout === "split-right";
-  const textFirst = layout === "text-top" || layout === "split-left";
-
-  if (isRow) {
-    const textW = width * (fraction ?? TOP_ZONE_FRACTION);
-    const photoW = width - textW;
-    const textX = textFirst ? 0 : photoW;
-    const photoX = textFirst ? textW : 0;
-    return {
-      text: { x: textX, y: 0, w: textW, h: height },
-      photo: { x: photoX, y: 0, w: photoW, h: height },
-    };
-  }
-
-  const textH = height * (fraction ?? TOP_ZONE_FRACTION);
-  const photoH = height - textH;
-  const textY = textFirst ? 0 : photoH;
-  const photoY = textFirst ? textH : 0;
-  return {
-    text: { x: 0, y: textY, w: width, h: textH },
-    photo: { x: 0, y: photoY, w: width, h: photoH },
-  };
-}
-
 /** Mirrors PosterPreview.tsx's paneBoxW/paneBoxH split -- in "single" mode
  * both panes are just the whole photo zone (paneB is simply unused by
  * callers then); "duo-h"/"duo-v" halve it along the matching axis. */
@@ -221,22 +158,17 @@ export interface RenderPosterParams {
   /** >=1 zoom beyond the minimum cover-fit scale, matching the live
    * preview's zoom slider (1 = no extra zoom). */
   zoom: number;
+  /** Second photo's own zoom (duo collage). */
+  zoom2: number;
   /** Which of the 6 concrete text/photo zone arrangements to render. */
   layout: PosterLayoutId;
-  /** Recolors the photo into duotoneDark (shadows) / duotoneLight
-   * (highlights) instead of its own colors. */
-  duotoneEnabled: boolean;
-  duotoneDark: string;
-  duotoneLight: string;
   /** Paints a random noise layer over the entire finished poster, last. */
   grainEnabled: boolean;
   /** 0-100. */
   grainIntensity: number;
-  /** Renders a dot-matrix silhouette of subjectMask behind the caption
-   * text instead of that zone's plain background. No-ops if subjectMask
-   * is null (segmentation unavailable or found nothing recognizable). */
-  subjectHalftoneEnabled: boolean;
   subjectMask: SubjectMask | null;
+  /** Subject of the second photo (duo collage). */
+  subjectMask2: SubjectMask | null;
 }
 
 /** Renders the poster directly onto a <canvas>, entirely by hand --
@@ -276,14 +208,12 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
     dots,
     wordPositions,
     zoom,
+    zoom2,
     layout,
-    duotoneEnabled,
-    duotoneDark,
-    duotoneLight,
     grainEnabled,
     grainIntensity,
-    subjectHalftoneEnabled,
     subjectMask,
+    subjectMask2,
   } = params;
 
   const scale = previewWidthPx ? width / previewWidthPx : 1;
@@ -334,29 +264,17 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   const isDuo = collageLayoutId !== "single";
 
   const img = await loadImage(imageUrl);
-  // Recolored once up front (rather than per drawImage call below) so
-  // every place the photo gets painted -- the main photo zone and the
-  // inline cropped thumbnails in the caption -- stays in sync. A
-  // <canvas> is a valid drawImage source, so nothing downstream needs to
-  // know whether it's drawing the original photo or this recolored one,
-  // aside from reading width/height off the right object.
-  const photoSource: CanvasImageSource = duotoneEnabled
-    ? applyDuotone(img, img.naturalWidth, img.naturalHeight, duotoneDark, duotoneLight, DUOTONE_EXPORT_MAX_DIMENSION)
-    : img;
-  const srcW = duotoneEnabled ? (photoSource as HTMLCanvasElement).width : img.naturalWidth;
-  const srcH = duotoneEnabled ? (photoSource as HTMLCanvasElement).height : img.naturalHeight;
+  const photoSource: CanvasImageSource = img;
+  const srcW = img.naturalWidth;
+  const srcH = img.naturalHeight;
 
   // Second photo, only loaded in a duo collage that actually has one --
   // its absence (slot not filled in yet) just leaves that pane showing the
   // canvas's base captionBgColor fill underneath.
   const img2 = isDuo && imageUrl2 ? await loadImage(imageUrl2) : null;
-  const photoSource2: CanvasImageSource | null = img2
-    ? duotoneEnabled
-      ? applyDuotone(img2, img2.naturalWidth, img2.naturalHeight, duotoneDark, duotoneLight, DUOTONE_EXPORT_MAX_DIMENSION)
-      : img2
-    : null;
-  const srcW2 = photoSource2 ? (duotoneEnabled ? (photoSource2 as HTMLCanvasElement).width : img2!.naturalWidth) : 0;
-  const srcH2 = photoSource2 ? (duotoneEnabled ? (photoSource2 as HTMLCanvasElement).height : img2!.naturalHeight) : 0;
+  const photoSource2: CanvasImageSource | null = img2;
+  const srcW2 = img2 ? img2.naturalWidth : 0;
+  const srcH2 = img2 ? img2.naturalHeight : 0;
 
   ctx.font = `${fontPx}px ${fontFamily}`;
   const bracketOpenW = bracket.open ? ctx.measureText(bracket.open).width : 0;
@@ -403,7 +321,7 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   // collage halves the zone along the matching axis (see splitPanes above).
   const [paneA, paneB] = splitPanes(photoZone, collageLayoutId);
   const bottomGeom = coverGeometry(paneA.w, paneA.h, srcW, srcH, pan, zoom);
-  const paneBGeom = photoSource2 ? coverGeometry(paneB.w, paneB.h, srcW2, srcH2, pan2, zoom) : null;
+  const paneBGeom = photoSource2 ? coverGeometry(paneB.w, paneB.h, srcW2, srcH2, pan2, zoom2) : null;
   const cutoutById = new Map(cutouts.map((c) => [c.id, c]));
 
   /** The photo (and source rect within it) a cutout sits over -- in a duo
@@ -480,6 +398,9 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
     if (decor.silhouetteEnabled && subjectMask) {
       drawSilhouette(ctx, subjectMask, decor.silhouetteColor, paneA, bottomGeom);
     }
+    if (decor.silhouetteEnabled && isDuo && subjectMask2 && paneBGeom) {
+      drawSilhouette(ctx, subjectMask2, decor.silhouetteColor, paneB, paneBGeom);
+    }
 
     // Mirrors PosterPreview.tsx's renderSticker: the bare shape, filled
     // with its color (flat) or a dot print of the photo (halftone).
@@ -506,10 +427,6 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   if (isOverlay && captionEnabled) {
     ctx.fillStyle = captionBgColor;
     ctx.fillRect(textZone.x, textZone.y, textZone.w, textZone.h);
-  }
-
-  if (captionEnabled && subjectHalftoneEnabled && subjectMask) {
-    drawSubjectHalftone(ctx, img, subjectMask, textZone, shape.id, textColor);
   }
 
   // --- Paint pass: caption text + inline cropped thumbnails, both
@@ -582,10 +499,17 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   }
 
   // --- Free-position overlay layer: small photo tiles, solid dots, and the
-  // corner / scatter caption modes. All positions are % of the content
-  // rect, matching the live preview's overlay container. ---
-  const px = (pct: number) => content.x + (pct / 100) * content.w;
-  const py = (pct: number) => content.y + (pct / 100) * content.h;
+  // corner / scatter caption modes. All positions are % of the caption zone
+  // (the whole poster when there is none), so they move and scale with it,
+  // matching the live preview's overlay container. Anything poking out of
+  // the poster's content area is clipped. ---
+  const anchor: ZoneRect = captionEnabled ? textZone : content;
+  const px = (pct: number) => anchor.x + (pct / 100) * anchor.w;
+  const py = (pct: number) => anchor.y + (pct / 100) * anchor.h;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(content.x, content.y, content.w, content.h);
+  ctx.clip();
 
   if (decor.tilesEnabled) {
     tiles.forEach((tile, i) => {
@@ -600,7 +524,7 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
       const ky = bmpH / natH;
       const x = px(tile.xPct);
       const y = py(tile.yPct);
-      const w = (tile.wPct / 100) * content.w;
+      const w = (tile.wPct / 100) * anchor.w;
       const h = w / tile.aspect;
       ctx.drawImage(src, r.sx * kx, r.sy * ky, r.sw * kx, r.sh * ky, x, y, w, h);
       if (decor.tileNumbered) {
@@ -647,9 +571,32 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
     ctx.textAlign = "right";
     ctx.textBaseline = "alphabetic";
     cornerLines(caption).forEach((line, i) => {
-      ctx.fillText(line, content.x + content.w * 0.95, content.y + content.h * 0.04 + size + i * size * 2.6);
+      ctx.fillText(line, anchor.x + anchor.w * 0.95, anchor.y + anchor.h * 0.04 + size + i * size * 2.6);
     });
     ctx.textAlign = "left";
+  }
+  ctx.restore();
+
+  // The subject cut out of its photo and pasted elsewhere, with a white
+  // sticker border (positions are % of the content area).
+  if (decor.silhouetteEnabled && decor.subjectPaste) {
+    const useSecond = decor.subjectPastePhoto === 1 && !!img2 && !!subjectMask2;
+    const src = useSecond ? img2 : img;
+    const mask = useSecond ? subjectMask2 : subjectMask;
+    const cut = src && mask ? buildSubjectCutout(src, mask) : null;
+    if (cut) {
+      const w = (decor.subjectPasteW / 100) * content.w;
+      const h = w / cut.aspect;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(content.x, content.y, content.w, content.h);
+      ctx.clip();
+      ctx.shadowColor = "rgba(0,0,0,0.4)";
+      ctx.shadowBlur = 8 * scale;
+      ctx.shadowOffsetY = 4 * scale;
+      ctx.drawImage(cut.canvas, content.x + (decor.subjectPasteX / 100) * content.w, content.y + (decor.subjectPasteY / 100) * content.h, w, h);
+      ctx.restore();
+    }
   }
 
   // Last, so grain sits on top of literally everything -- photo, cutouts,

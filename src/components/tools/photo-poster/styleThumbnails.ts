@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { BRACKET_OPTIONS, FONT_OPTIONS, SHAPE_OPTIONS } from "./constants";
+import { BRACKET_OPTIONS, FONT_OPTIONS, SHAPE_BASE_PX, SHAPE_OPTIONS } from "./constants";
 import { renderPosterToCanvas } from "./exportPoster";
 import { STYLE_PRESETS, buildStyleState } from "./stylePresets";
 import type { SubjectMask } from "./subjectSegmentation";
@@ -132,7 +132,7 @@ export function useStyleThumbnails(enabled: boolean): Record<string, string> {
             baseFontSizePx: st.baseFontSizePx,
             lineHeightMultiplier: st.lineHeightMultiplier,
             letterSpacingPx: st.letterSpacingPx,
-            squareSizePx: st.baseFontSizePx * st.scaleMultiplier,
+            squareSizePx: SHAPE_BASE_PX * st.scaleMultiplier,
             fontFamily: await resolveFontFamily(fontOption),
             previewWidthPx: REFERENCE_PREVIEW_W,
             pan: { x: 0.5, y: 0.5 },
@@ -142,14 +142,12 @@ export function useStyleThumbnails(enabled: boolean): Record<string, string> {
             dots: st.dots,
             wordPositions: st.wordPositions,
             zoom: 1,
+            zoom2: 1,
             layout: st.layout,
-            duotoneEnabled: false,
-            duotoneDark: "#000000",
-            duotoneLight: "#ffffff",
             grainEnabled: st.grainEnabled,
             grainIntensity: st.grainIntensity,
-            subjectHalftoneEnabled: false,
             subjectMask: scene.mask,
+            subjectMask2: null,
           });
           if (unmountedRef.current || cancelled) return;
           const url = canvas.toDataURL("image/jpeg", 0.85);
