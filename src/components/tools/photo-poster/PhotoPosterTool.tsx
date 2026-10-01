@@ -9,7 +9,7 @@ import { renderPosterToCanvas } from "./exportPoster";
 import { loadUploadedImage } from "./imageUpload";
 import { analyzePhotoMood } from "./photoMood";
 import { PosterPreview } from "./PosterPreview";
-import { buildStyleState } from "./stylePresets";
+import { STYLE_PRESETS, buildStyleState } from "./stylePresets";
 import { useStyleThumbnails } from "./styleThumbnails";
 import { segmentSubject, type SubjectMask } from "./subjectSegmentation";
 import type {
@@ -27,7 +27,7 @@ import type {
   Tile,
   WordPos,
 } from "./types";
-import { DEFAULT_DECOR } from "./types";
+import { ALL_FEATURES, DEFAULT_DECOR } from "./types";
 import { randomizeCutouts, resetCutoutColors, resizeCutouts, setCutoutColor, wordCountOf } from "./useCutoutLayout";
 
 const DEFAULT_CUTOUT_COUNT = 6;
@@ -66,7 +66,7 @@ export function PhotoPosterTool() {
   // turning it back on restores the same arrangement.
   const [shapesEnabled, setShapesEnabled] = useState(true);
   const [shapeId, setShapeId] = useState<ShapeId>("square");
-  const [stickerStyleId, setStickerStyleId] = useState<StickerStyleId>("die-cut");
+  const [stickerStyleId, setStickerStyleId] = useState<StickerStyleId>("flat");
   const [scaleMultiplier, setScaleMultiplier] = useState(0.5);
   const [baseFontSizePx, setBaseFontSizePx] = useState(16);
   const [lineHeightMultiplier, setLineHeightMultiplier] = useState(1.5);
@@ -98,6 +98,9 @@ export function PhotoPosterTool() {
   const [dots, setDots] = useState<Dot[]>([]);
   const [wordPositions, setWordPositions] = useState<WordPos[]>([]);
   const [activeStyleId, setActiveStyleId] = useState<string | null>(null);
+  // With a style applied, only the controls it uses are listed; this brings
+  // every control back.
+  const [showAllFeatures, setShowAllFeatures] = useState(false);
   const patchDecor = useCallback((patch: Partial<DecorState>) => setDecor((d) => ({ ...d, ...patch })), []);
   const [duotoneEnabled, setDuotoneEnabled] = useState(false);
   const [grainEnabled, setGrainEnabled] = useState(false);
@@ -403,12 +406,22 @@ export function PhotoPosterTool() {
     );
      
   }, []);
+  const activeStyle = STYLE_PRESETS.find((p) => p.id === activeStyleId) ?? null;
+  const features = activeStyle && !showAllFeatures ? activeStyle.features : ALL_FEATURES;
+  // 剪影填色 is one color story: frame, silhouette and caption block follow
+  // a single "主色" so they can't drift apart.
+  const linkedColor = activeStyle?.id === "silhouette-frame" && !showAllFeatures;
   const handleDecorChange = useCallback(
     (patch: Partial<DecorState>) => {
-      patchDecor(patch);
+      let next = patch;
+      if (linkedColor && patch.frameColor) {
+        next = { ...patch, silhouetteColor: patch.frameColor };
+        setCaptionBgColor(patch.frameColor);
+      }
+      patchDecor(next);
       if (patch.captionMode === "scatter") ensureWordPositions(captionWords(caption).length);
     },
-    [patchDecor, ensureWordPositions, caption],
+    [patchDecor, ensureWordPositions, caption, linkedColor],
   );
   const handleCaptionChange = useCallback(
     (text: string) => {
@@ -535,6 +548,15 @@ export function PhotoPosterTool() {
     subjectMask,
   ]);
 
+  const visibleTabs: TabId[] = [
+    "layout",
+    "style",
+    "effects",
+    ...(features.shapes || features.tiles || features.dots || features.silhouette ? (["shapes"] as TabId[]) : []),
+    "caption",
+    "text",
+  ];
+
   // Two-photo layouts need both slots filled; a missing one would export a
   // blank half. Clicking export then opens 版型 (where the slots are).
   const missingPhotos = !imageUrl || (collageLayoutId !== "single" && !imageUrl2);
@@ -572,7 +594,7 @@ export function PhotoPosterTool() {
   }
 
   return (
-    <div className="flex h-full min-h-0">
+    <div className={`flex h-full min-h-0 ${activeTab ? "flex-col md:flex-row" : "flex-row"}`}>
       <input
         ref={fileInputRef}
         type="file"
@@ -588,17 +610,24 @@ export function PhotoPosterTool() {
         onChange={(e) => void handleFileList2(e.target.files)}
       />
 
-      <ToolRail
-        activeTab={activeTab}
-        onSelect={setActiveTab}
-        sizeLabel={`${preset.label} ${preset.width} × ${preset.height}`}
-        onChangeSize={() => setPreset(null)}
-        onExport={handleExportClick}
-        exporting={exporting}
-        missingPhotos={missingPhotos}
-      />
+      {/* The main menu and a tool's panel never show together: opening a tool
+          swaps the menu for that tool's controls (with a back button), which
+          sit under the poster on a phone and in a one-third side column on
+          wider screens, so the poster keeps the rest of the screen. */}
+      {!activeTab && (
+        <ToolRail
+          visibleTabs={visibleTabs}
+          activeTab={activeTab}
+          onSelect={setActiveTab}
+          sizeLabel={`${preset.label} ${preset.width} × ${preset.height}`}
+          onChangeSize={() => setPreset(null)}
+          onExport={handleExportClick}
+          exporting={exporting}
+          missingPhotos={missingPhotos}
+        />
+      )}
 
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="order-1 flex min-h-0 min-w-0 flex-1 flex-col md:order-2">
       <div ref={previewWrapCallbackRef} className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-2">
         <div
           style={frameStyle}
@@ -655,12 +684,22 @@ export function PhotoPosterTool() {
         </div>
       </div>
 
+      </div>
+
       {activeTab && (
-        <div className="min-h-0 shrink-0 border-t border-line bg-surface" style={{ height: "max(36dvh, 220px)", maxHeight: "50dvh" }}>
+        <div className="order-2 h-[44dvh] min-h-0 shrink-0 border-t border-line bg-surface md:order-1 md:h-auto md:w-1/3 md:min-w-[300px] md:max-w-[440px] md:border-r md:border-t-0">
           <ToolPanel
             activeTab={activeTab}
             onClose={() => setActiveTab(null)}
             onApplyStylePreset={handleApplyStylePreset}
+            onExport={handleExportClick}
+            exporting={exporting}
+            missingPhotos={missingPhotos}
+            features={features}
+            filtered={!!activeStyle}
+            showAllFeatures={showAllFeatures}
+            onShowAllFeaturesChange={setShowAllFeatures}
+            linkedColor={linkedColor}
             styleThumbs={styleThumbs}
             activeStyleId={activeStyleId}
             decor={decor}
@@ -741,7 +780,6 @@ export function PhotoPosterTool() {
           />
         </div>
       )}
-      </div>
     </div>
   );
 }

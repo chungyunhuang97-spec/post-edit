@@ -106,7 +106,7 @@ export interface CollageOption {
 
 /** How each cutout sticker is rendered onto the photo -- orthogonal to
  * ShapeId (the silhouette) and color (the fill). */
-export type StickerStyleId = "die-cut" | "halftone" | "flat";
+export type StickerStyleId = "halftone" | "flat";
 
 export interface StickerStyleOption {
   id: StickerStyleId;
@@ -127,6 +127,47 @@ export type StylePresetId =
   | "airy-words"
   | "silhouette-frame";
 
+/** Which groups of controls a style actually uses. Anything a style leaves
+ * out is hidden while that style is active, so the panels only list what
+ * can change the result. */
+export interface StyleFeatures {
+  /** Where the caption sits relative to the photo (the six arrangements). */
+  captionPosition: boolean;
+  /** How much of the poster the caption block covers. */
+  captionSize: boolean;
+  /** Border around the poster. */
+  frame: boolean;
+  /** Flow / corner / scatter text arrangement. */
+  captionMode: boolean;
+  /** The "words off, windows only" switch (no style needs it any more,
+   * since every look now shows its caption). */
+  showText: boolean;
+  captionBg: boolean;
+  subjectHalftone: boolean;
+  /** Cutout shapes: shape, size, count, style, colors. */
+  shapes: boolean;
+  /** The inline photo windows next to the words. */
+  windows: boolean;
+  tiles: boolean;
+  dots: boolean;
+  silhouette: boolean;
+}
+
+export const ALL_FEATURES: StyleFeatures = {
+  captionPosition: true,
+  captionSize: true,
+  frame: true,
+  captionMode: true,
+  showText: false,
+  captionBg: true,
+  subjectHalftone: true,
+  shapes: true,
+  windows: true,
+  tiles: true,
+  dots: true,
+  silhouette: true,
+};
+
 export interface StylePreset {
   id: StylePresetId;
   label: string;
@@ -144,12 +185,14 @@ export interface StylePreset {
   grainEnabled: boolean;
   grainIntensity: number;
   cutoutCount: number;
-  /** Sticker style for the cutout shapes (default: die-cut). */
+  /** Sticker style for the cutout shapes (default: flat). */
   stickerStyleId?: StickerStyleId;
   /** Whether the cutout shapes show at all (default: true). */
   shapesEnabled?: boolean;
   /** Whether the caption shows at all (default: true). */
   captionEnabled?: boolean;
+  /** The controls this style uses; the rest are hidden while it is active. */
+  features: StyleFeatures;
   /** Frame, caption mode, silhouette... (merged over DEFAULT_DECOR). */
   decor?: Partial<DecorState>;
   /** Free-placed small photos, solid dots and scattered word anchors, each
@@ -220,6 +263,9 @@ export interface DecorState {
    * windows, so a flat color block can carry shaped photo cut-outs only. */
   showCaptionText: boolean;
   captionMode: CaptionMode;
+  /** Shows the cutout shapes as small photo windows inline with the caption
+   * text (the original "挖空" look). Off keeps them only as stickers. */
+  inlineWindows: boolean;
   tilesEnabled: boolean;
   tileNumbered: boolean;
   /** What dragging a small photo does: move it, or pan the part of the
@@ -238,6 +284,7 @@ export const DEFAULT_DECOR: DecorState = {
   captionFraction: null,
   showCaptionText: true,
   captionMode: "flow",
+  inlineWindows: true,
   tilesEnabled: false,
   tileNumbered: false,
   tileDragMode: "move",

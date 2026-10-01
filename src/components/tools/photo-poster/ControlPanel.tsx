@@ -14,6 +14,7 @@ import type {
   PosterLayoutId,
   ShapeId,
   StickerStyleId,
+  StyleFeatures,
   StylePreset,
   Tile,
 } from "./types";
@@ -98,6 +99,8 @@ function Icon({ children }: { children: ReactNode }) {
 }
 
 export interface ToolRailProps {
+  /** Tabs to list (a style can leave a tab with nothing to adjust). */
+  visibleTabs: TabId[];
   activeTab: TabId | null;
   onSelect: (tab: TabId | null) => void;
   sizeLabel: string;
@@ -113,11 +116,11 @@ export interface ToolRailProps {
 /** The always-visible vertical toolbar down the left edge. Picking a tool
  * opens its adjustment panel under the canvas; picking it again closes the
  * panel so the canvas gets the whole height back. */
-export function ToolRail({ activeTab, onSelect, sizeLabel, onChangeSize, onExport, exporting, missingPhotos }: ToolRailProps) {
+export function ToolRail({ visibleTabs, activeTab, onSelect, sizeLabel, onChangeSize, onExport, exporting, missingPhotos }: ToolRailProps) {
   return (
     <nav className="flex w-12 shrink-0 flex-col items-center border-r border-line bg-surface py-2" aria-label="編輯工具">
       <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto">
-        {TOOLS.map((tool) => {
+        {TOOLS.filter((tool) => visibleTabs.includes(tool.id)).map((tool) => {
           const active = activeTab === tool.id;
           return (
             <button
@@ -173,6 +176,20 @@ const CAPTION_SIZES = [
   { label: "小", value: 0.28 },
   { label: "中", value: 0.4 },
   { label: "大", value: 0.55 },
+];
+
+// Names for each control group, in the order the chips list them.
+const FEATURE_LABELS: [keyof StyleFeatures, string][] = [
+  ["captionPosition", "文案位置"],
+  ["captionSize", "文案大小"],
+  ["frame", "外框"],
+  ["captionMode", "文字排法"],
+  ["captionBg", "文案底色"],
+  ["shapes", "形狀圖形"],
+  ["windows", "圖形窗口"],
+  ["tiles", "小照片"],
+  ["dots", "圓點"],
+  ["silhouette", "主體剪影"],
 ];
 
 const fieldClass = "rounded-md border border-line bg-surface-2 px-2 py-1.5 text-ink";
@@ -317,6 +334,17 @@ export interface ToolPanelProps {
   onShuffleDots: () => void;
   onDotColorChange: (id: string, color: string) => void;
   onShuffleWords: () => void;
+  /** Controls the active style uses (everything when none / "show all"). */
+  features: StyleFeatures;
+  onExport: () => void;
+  exporting: boolean;
+  missingPhotos: boolean;
+  /** True when a style is applied and its controls are being filtered. */
+  filtered: boolean;
+  showAllFeatures: boolean;
+  onShowAllFeaturesChange: (on: boolean) => void;
+  /** 剪影填色 keeps frame, silhouette and caption block on one color. */
+  linkedColor: boolean;
 
   imageUrl: string | null;
   uploadError: string | null;
@@ -418,6 +446,14 @@ export function ToolPanel(props: ToolPanelProps) {
     onShuffleDots,
     onDotColorChange,
     onShuffleWords,
+    onExport,
+    exporting,
+    missingPhotos,
+    features,
+    filtered,
+    showAllFeatures,
+    onShowAllFeaturesChange,
+    linkedColor,
     imageUrl,
     uploadError,
     onRequestUpload,
@@ -483,23 +519,37 @@ export function ToolPanel(props: ToolPanelProps) {
   } = props;
 
   const isDuo = collageLayoutId !== "single";
+  // The bracket style only matters when photo windows sit between the words.
+  const showBrackets = decor.captionMode === "flow" && decor.inlineWindows && shapesEnabled;
   // Tiles show a crop `s` wide; zoom is how much tighter than half the photo.
   const tileZoom = tiles.length ? Math.min(4, Math.max(0.6, 0.5 / (tiles.reduce((a, t) => a + t.s, 0) / tiles.length))) : 1;
   const captionFractionValue = decor.captionFraction ?? (layout === "overlay-h" || layout === "overlay-v" ? 0.34 : 0.5);
 
   return (
     <div className="flex h-full min-h-0 flex-col text-sm">
-      <div className="flex shrink-0 items-center justify-between border-b border-line px-4 py-1.5">
-        <span className="text-xs font-semibold text-ink">{TAB_TITLES[activeTab]}</span>
+      <div className="flex shrink-0 items-center gap-2 border-b border-line px-2 py-1.5">
         <button
           type="button"
           onClick={onClose}
-          aria-label="收合面板"
-          className="flex h-8 w-8 items-center justify-center rounded-full text-ink-muted transition hover:bg-surface-2 hover:text-ink"
+          aria-label="返回主選單"
+          className="flex h-8 items-center gap-0.5 rounded-full pl-1 pr-3 text-xs font-medium text-ink-muted transition hover:bg-surface-2 hover:text-ink"
         >
           <Icon>
-            <path d="M6 9l6 6 6-6" />
+            <path d="M15 6l-6 6 6 6" />
           </Icon>
+          返回
+        </button>
+        <span className="min-w-0 flex-1 truncate text-xs font-semibold text-ink">{TAB_TITLES[activeTab]}</span>
+        <button
+          type="button"
+          disabled={exporting}
+          onClick={onExport}
+          title={missingPhotos ? "還有照片尚未上傳" : "匯出 PNG"}
+          className={`flex h-8 shrink-0 items-center gap-1 rounded-full accent-fill px-3 text-xs font-semibold transition hover:opacity-90 disabled:opacity-40 ${
+            missingPhotos ? "opacity-50" : ""
+          }`}
+        >
+          {exporting ? "匯出中" : "匯出"}
         </button>
       </div>
 
@@ -564,9 +614,12 @@ export function ToolPanel(props: ToolPanelProps) {
               )}
             </section>
 
+            {(features.captionPosition || features.captionSize) && (
             <section className="flex flex-col gap-3">
-              <SectionTitle>文案位置</SectionTitle>
-              {captionEnabled ? (
+              <SectionTitle>{features.captionPosition ? "文案位置" : "文案大小"}</SectionTitle>
+              {!captionEnabled ? (
+                <p className="text-[11px] text-ink-faint">目前沒有顯示文案，照片鋪滿整張畫布。到「文案」分頁可以開啟。</p>
+              ) : features.captionPosition ? (
                 <div className="grid grid-cols-2 gap-2">
                   {LAYOUT_OPTIONS.map((opt) => (
                     <button
@@ -582,10 +635,8 @@ export function ToolPanel(props: ToolPanelProps) {
                     </button>
                   ))}
                 </div>
-              ) : (
-                <p className="text-[11px] text-ink-faint">目前沒有顯示文案，照片鋪滿整張畫布。到「文案」分頁可以開啟。</p>
-              )}
-              {captionEnabled && (
+              ) : null}
+              {captionEnabled && features.captionSize && (
                 <div className="flex flex-col gap-2">
                   <span className="flex justify-between text-xs text-ink-muted">
                     <span>文案區塊大小</span>
@@ -619,7 +670,9 @@ export function ToolPanel(props: ToolPanelProps) {
                 </div>
               )}
             </section>
+            )}
 
+            {features.frame && (
             <section className="flex flex-col gap-3">
               <SectionTitle>外框</SectionTitle>
               <label className="flex flex-col gap-1">
@@ -637,9 +690,14 @@ export function ToolPanel(props: ToolPanelProps) {
                 />
               </label>
               {decor.frameInsetPct > 0 && (
-                <ColorField label="外框顏色" value={decor.frameColor} onChange={(hex) => onDecorChange({ frameColor: hex })} />
+                <ColorField
+                  label={linkedColor ? "主色（外框、剪影、文案底色一起變）" : "外框顏色"}
+                  value={decor.frameColor}
+                  onChange={(hex) => onDecorChange({ frameColor: hex })}
+                />
               )}
             </section>
+            )}
           </div>
         )}
 
@@ -677,6 +735,31 @@ export function ToolPanel(props: ToolPanelProps) {
                 );
               })}
             </div>
+            {filtered && (
+              <div className="flex flex-col gap-2 rounded-md border border-line bg-surface-2 px-3 py-2">
+                <p className="text-[11px] text-ink-faint">
+                  {showAllFeatures ? "目前顯示所有功能。" : "這個風格只顯示用得到的功能："}
+                </p>
+                {!showAllFeatures && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {FEATURE_LABELS.filter(([key]) => features[key]).map(([key, label]) => (
+                      <span key={key} className="rounded-full bg-accent-soft px-2 py-0.5 text-[10px] font-medium text-accent">
+                        {label}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <label className="flex items-center justify-between gap-3 text-xs text-ink-muted">
+                  <span>顯示所有功能（進階）</span>
+                  <input
+                    type="checkbox"
+                    checked={showAllFeatures}
+                    onChange={(e) => onShowAllFeaturesChange(e.target.checked)}
+                    className="h-4 w-4 shrink-0 accent-accent"
+                  />
+                </label>
+              </div>
+            )}
           </div>
         )}
 
@@ -754,6 +837,7 @@ export function ToolPanel(props: ToolPanelProps) {
 
             {captionEnabled && (
               <>
+                {features.captionMode && (
                 <div className="flex flex-col gap-2">
                   <span className="text-xs text-ink-muted">文字排法</span>
                   <Segmented<CaptionMode>
@@ -775,7 +859,9 @@ export function ToolPanel(props: ToolPanelProps) {
                     </button>
                   )}
                 </div>
+                )}
 
+                {features.showText && (
                 <label className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-muted">
                   <span className="flex flex-col gap-0.5">
                     <span className="font-medium text-ink">顯示文字</span>
@@ -788,6 +874,25 @@ export function ToolPanel(props: ToolPanelProps) {
                     className="h-4 w-4 shrink-0 accent-accent"
                   />
                 </label>
+                )}
+
+                {features.windows && decor.captionMode === "flow" && (
+                <label className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-muted">
+                  <span className="flex flex-col gap-0.5">
+                    <span className="font-medium text-ink">文字旁顯示圖形窗口</span>
+                    <span className="text-ink-faint">
+                      {shapesEnabled ? "圖形會以小照片窗口的樣子穿插在文字之間" : "需要先到「圖形」分頁開啟「顯示圖形」"}
+                    </span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={decor.inlineWindows}
+                    disabled={!shapesEnabled}
+                    onChange={(e) => onDecorChange({ inlineWindows: e.target.checked })}
+                    className="h-4 w-4 shrink-0 accent-accent disabled:opacity-40"
+                  />
+                </label>
+                )}
 
                 <div className="flex items-center justify-end">
                   <button
@@ -806,8 +911,11 @@ export function ToolPanel(props: ToolPanelProps) {
                   className={`w-full resize-none ${fieldClass}`}
                 />
 
-                <ColorField label="文案底色" value={captionBgColor} onChange={onCaptionBgColorChange} />
+                {features.captionBg && !linkedColor && (
+                  <ColorField label="文案底色" value={captionBgColor} onChange={onCaptionBgColorChange} />
+                )}
 
+                {features.subjectHalftone && (
                 <div className="flex flex-col gap-1.5 rounded-md border border-line bg-surface-2 px-3 py-2">
                   <label className="flex items-center justify-between gap-3 text-xs text-ink-muted">
                     <span className="flex flex-col gap-0.5">
@@ -829,6 +937,7 @@ export function ToolPanel(props: ToolPanelProps) {
                     <p className="text-[11px] text-ink-faint">這張照片沒有偵測到可辨識的主體，暫時不會顯示效果。</p>
                   )}
                 </div>
+                )}
               </>
             )}
           </div>
@@ -836,6 +945,8 @@ export function ToolPanel(props: ToolPanelProps) {
 
         {activeTab === "shapes" && (
           <div className="flex flex-col gap-4">
+            {features.shapes && (
+            <>
             <SectionTitle>形狀貼紙</SectionTitle>
             <label className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-muted">
               <span className="flex flex-col gap-0.5">
@@ -963,7 +1074,11 @@ export function ToolPanel(props: ToolPanelProps) {
             </div>
               </>
             )}
+            </>
+            )}
 
+            {features.tiles && (
+            <>
             <SectionTitle>小照片</SectionTitle>
             <label className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-muted">
               <span className="flex flex-col gap-0.5">
@@ -1032,7 +1147,11 @@ export function ToolPanel(props: ToolPanelProps) {
                 </button>
               </>
             )}
+            </>
+            )}
 
+            {features.dots && (
+            <>
             <SectionTitle>圓點</SectionTitle>
             <label className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-muted">
               <span className="flex flex-col gap-0.5">
@@ -1094,7 +1213,11 @@ export function ToolPanel(props: ToolPanelProps) {
                 </button>
               </>
             )}
+            </>
+            )}
 
+            {features.silhouette && (
+            <>
             <SectionTitle>主體剪影</SectionTitle>
             <div className="flex flex-col gap-2 rounded-md border border-line bg-surface-2 px-3 py-2">
               <label className="flex items-center justify-between gap-3 text-xs text-ink-muted">
@@ -1110,7 +1233,7 @@ export function ToolPanel(props: ToolPanelProps) {
                   className="h-4 w-4 shrink-0 accent-accent disabled:opacity-40"
                 />
               </label>
-              {decor.silhouetteEnabled && (
+              {decor.silhouetteEnabled && !linkedColor && (
                 <ColorField label="剪影顏色" value={decor.silhouetteColor} onChange={(hex) => onDecorChange({ silhouetteColor: hex })} />
               )}
               {decor.silhouetteEnabled && subjectHalftoneStatus === "loading" && (
@@ -1120,6 +1243,8 @@ export function ToolPanel(props: ToolPanelProps) {
                 <p className="text-[11px] text-ink-faint">這張照片沒有偵測到可辨識的主體，暫時不會顯示效果。</p>
               )}
             </div>
+            </>
+            )}
           </div>
         )}
 
@@ -1128,7 +1253,7 @@ export function ToolPanel(props: ToolPanelProps) {
             {!captionEnabled && (
               <p className="text-xs text-ink-faint">目前「版型」分頁的顯示文案是關閉的，這裡的設定暫時不會顯示在海報上。</p>
             )}
-            <div className="grid grid-cols-2 gap-3">
+            <div className={`grid gap-3 ${showBrackets ? "grid-cols-2" : "grid-cols-1"}`}>
               <label className="flex flex-col gap-1 text-xs text-ink-muted">
                 字體風格
                 <select
@@ -1143,6 +1268,7 @@ export function ToolPanel(props: ToolPanelProps) {
                   ))}
                 </select>
               </label>
+              {showBrackets && (
               <label className="flex flex-col gap-1 text-xs text-ink-muted">
                 括號樣式
                 <select
@@ -1157,6 +1283,7 @@ export function ToolPanel(props: ToolPanelProps) {
                   ))}
                 </select>
               </label>
+              )}
             </div>
             <label className="flex flex-col gap-1">
               <span className="flex justify-between text-xs text-ink-muted">
@@ -1171,6 +1298,8 @@ export function ToolPanel(props: ToolPanelProps) {
                 onChange={(e) => onFontSizeChange(Number(e.target.value))}
               />
             </label>
+            {decor.captionMode === "flow" && (
+            <>
             <label className="flex flex-col gap-1">
               <span className="flex justify-between text-xs text-ink-muted">
                 <span>行距</span>
@@ -1198,6 +1327,8 @@ export function ToolPanel(props: ToolPanelProps) {
                 onChange={(e) => onLetterSpacingChange(Number(e.target.value))}
               />
             </label>
+            </>
+            )}
             <ColorField label="文字顏色" value={textColor} onChange={onTextColorChange} />
           </div>
         )}

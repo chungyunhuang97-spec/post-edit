@@ -25,12 +25,6 @@ import { drawHalftoneTile, locateInPane, stickerSourceRect, type CropGeom } from
 import { buildCaptionTokens, clampPct } from "./useCutoutLayout";
 
 const DUOTONE_PREVIEW_MAX_DIMENSION = 900;
-// Die-cut sticker border width, as a fraction of the cutout's own size --
-// scaling with the sticker (not a fixed px) keeps the border reading as the
-// same *proportion* of edge whether the sticker is tiny or huge. Shared
-// with exportPoster.ts's identical constant so the live preview and the
-// exported PNG agree.
-const STICKER_BORDER_FRACTION = 0.1;
 interface CoverGeometry {
   boxW: number;
   boxH: number;
@@ -509,7 +503,9 @@ export function PosterPreview({
   // With the words hidden, only the inline photo windows remain, so they
   // gather in the middle of the block instead of spreading over blank gaps.
   const allTokens = buildCaptionTokens(caption, cutouts);
-  const tokens = decor.showCaptionText ? allTokens : allTokens.filter((t) => t.kind === "cutout");
+  const tokens = allTokens.filter(
+    (t) => (decor.showCaptionText || t.kind === "cutout") && (decor.inlineWindows || t.kind === "word"),
+  );
   const cutoutById = new Map(cutouts.map((c) => [c.id, c]));
 
   // Dragging the photo itself (not a cutout square) repositions which part
@@ -637,30 +633,10 @@ export function PosterPreview({
       cursor: locked ? "default" : "grab",
     };
 
-    if (stickerStyleId === "flat") {
-      return (
-        <div key={cutout.id} {...commonProps} className="absolute" style={outerStyle}>
-          <div className="absolute inset-0" style={{ backgroundColor: fillColor, clipPath: shape.clipPath }} />
-        </div>
-      );
-    }
-
-    // die-cut and halftone share the same "white cut-line silhouette a bit
-    // larger than the shape, shadowed" structure -- they only differ in
-    // what fills the inner layer (flat color vs. dot pattern).
+    // Both styles are just the bare shape (no outline, no shadow): flat
+    // fills it with the color, halftone with a dot print of the photo.
     return (
       <div key={cutout.id} {...commonProps} className="absolute" style={outerStyle}>
-        {stickerStyleId === "die-cut" && (
-          <div
-            className="absolute"
-            style={{
-              inset: -STICKER_BORDER_FRACTION * squareSizePx,
-              backgroundColor: "#ffffff",
-              clipPath: shape.clipPath,
-              filter: "drop-shadow(0 3px 5px rgba(0,0,0,0.4))",
-            }}
-          />
-        )}
         {stickerStyleId === "halftone" ? (
           (() => {
             const p = paneFor(cutout);

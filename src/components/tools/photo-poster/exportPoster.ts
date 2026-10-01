@@ -29,9 +29,6 @@ import { drawHalftoneTile, locateInPane, stickerSourceRect, type SourceRect } fr
 const DUOTONE_EXPORT_MAX_DIMENSION = 3000;
 // Matches PosterPreview.tsx: in a duo collage neither photo gets a
 // drag-to-pan handle, so both simply center within their own half.
-// Matches PosterPreview.tsx's identical constant -- the die-cut sticker
-// border's width, as a fraction of the cutout's own size.
-const STICKER_BORDER_FRACTION = 0.1;
 interface CoverGeometry {
   renderedW: number;
   renderedH: number;
@@ -366,7 +363,9 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   const bracketCloseW = bracket.close ? ctx.measureText(bracket.close).width : 0;
 
   const allTokens = buildCaptionTokens(caption, cutouts);
-  const tokens = decor.showCaptionText ? allTokens : allTokens.filter((t) => t.kind === "cutout");
+  const tokens = allTokens.filter(
+    (t) => (decor.showCaptionText || t.kind === "cutout") && (decor.inlineWindows || t.kind === "word"),
+  );
   const availableWidth = Math.max(1, textZone.w - padX * 2);
 
   // --- Layout pass: word-wrap the token stream (mirrors the live
@@ -482,49 +481,23 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
       drawSilhouette(ctx, subjectMask, decor.silhouetteColor, paneA, bottomGeom);
     }
 
-    // Mirrors PosterPreview.tsx's renderSticker: a plain paint swatch would
-    // read as a stray colored speck sitting directly on the photo, so every
-    // sticker style gives it some kind of printed/peeled-off-the-sheet lift.
-    if (stickerStyleId === "flat") {
-      // No white cut line, no shadow: just the shape in its color.
-      cutouts.forEach((cutout) => {
-        const x = photoZone.x + (cutout.xPct / 100) * photoZone.w;
-        const y = photoZone.y + (cutout.yPct / 100) * photoZone.h;
-        ctx.fillStyle = cutout.color ?? stickerColor;
+    // Mirrors PosterPreview.tsx's renderSticker: the bare shape, filled
+    // with its color (flat) or a dot print of the photo (halftone).
+    cutouts.forEach((cutout) => {
+      const x = photoZone.x + (cutout.xPct / 100) * photoZone.w;
+      const y = photoZone.y + (cutout.yPct / 100) * photoZone.h;
+      const color = cutout.color ?? stickerColor;
+      const crop = stickerStyleId === "halftone" ? cropFor(cutout, 1) : null;
+      if (crop) {
+        ctx.save();
+        ctx.clip(canvasShapePath(shape.id, x, y, squarePx));
+        drawHalftoneTile(ctx, crop.src, crop.rect, x, y, squarePx, color);
+        ctx.restore();
+      } else {
+        ctx.fillStyle = color;
         ctx.fill(canvasShapePath(shape.id, x, y, squarePx));
-      });
-    } else {
-      // die-cut gets a white cut line (a bit larger than the shape,
-      // shadowed); the halftone print sits directly on the photo.
-      if (stickerStyleId === "die-cut") {
-        const stickerBorderPx = STICKER_BORDER_FRACTION * squarePx;
-        ctx.shadowColor = "rgba(0,0,0,0.4)";
-        ctx.shadowBlur = 5 * scale;
-        ctx.shadowOffsetY = 3 * scale;
-        ctx.fillStyle = "#ffffff";
-        cutouts.forEach((cutout) => {
-          const x = photoZone.x + (cutout.xPct / 100) * photoZone.w;
-          const y = photoZone.y + (cutout.yPct / 100) * photoZone.h;
-          ctx.fill(canvasShapePath(shape.id, x - stickerBorderPx, y - stickerBorderPx, squarePx + 2 * stickerBorderPx));
-        });
-        ctx.shadowColor = "transparent";
       }
-      cutouts.forEach((cutout) => {
-        const x = photoZone.x + (cutout.xPct / 100) * photoZone.w;
-        const y = photoZone.y + (cutout.yPct / 100) * photoZone.h;
-        const color = cutout.color ?? stickerColor;
-        const crop = stickerStyleId === "halftone" ? cropFor(cutout, 1) : null;
-        if (crop) {
-          ctx.save();
-          ctx.clip(canvasShapePath(shape.id, x, y, squarePx));
-          drawHalftoneTile(ctx, crop.src, crop.rect, x, y, squarePx, color);
-          ctx.restore();
-        } else {
-          ctx.fillStyle = cutout.color ?? stickerColor;
-          ctx.fill(canvasShapePath(shape.id, x, y, squarePx));
-        }
-      });
-    }
+    });
   }
 
   // The overlay layouts have no separate background fill under the text

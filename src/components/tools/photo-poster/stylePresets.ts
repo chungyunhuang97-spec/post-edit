@@ -1,5 +1,5 @@
 import { makeDots, makeTiles, makeWordPositions } from "./decorLayout";
-import { DEFAULT_DECOR } from "./types";
+import { ALL_FEATURES, DEFAULT_DECOR } from "./types";
 import type {
   BracketStyleId,
   Cutout,
@@ -14,6 +14,8 @@ import type {
   WordPos,
 } from "./types";
 import { randomizeCutouts, wordCountOf } from "./useCutoutLayout";
+
+const NO_FEATURES = Object.fromEntries(Object.keys(ALL_FEATURES).map((k) => [k, false])) as unknown as typeof ALL_FEATURES;
 
 const JOURNAL_DOTS = ["#f4b400", "#1a56db", "#d9381e", "#188038"];
 
@@ -39,25 +41,29 @@ export const STYLE_PRESETS: StylePreset[] = [
     grainEnabled: true,
     grainIntensity: 16,
     cutoutCount: 5,
+    features: { ...NO_FEATURES, captionPosition: true, captionSize: true, captionBg: true, shapes: true, windows: true },
   },
   {
     id: "sticker-dump",
     label: "貼紙拼貼",
-    sublabel: "照片鋪滿 · 多色花朵貼紙",
+    sublabel: "照片為主 · 滿版多色花朵貼紙",
     shapeId: "flower",
-    bracketId: "square",
+    bracketId: "none",
     fontOptionId: "script",
-    layout: "overlay-h",
+    layout: "photo-top",
     captionBgColor: "#ff5fa2",
     textColor: "#fffbe8",
-    scaleMultiplier: 1.3,
-    baseFontSizePx: 18,
-    lineHeightMultiplier: 1.5,
+    scaleMultiplier: 2,
+    baseFontSizePx: 20,
+    lineHeightMultiplier: 1.4,
     letterSpacingPx: 0,
     grainEnabled: false,
     grainIntensity: 30,
-    cutoutCount: 7,
+    cutoutCount: 9,
+    stickerStyleId: "flat",
+    decor: { captionFraction: 0.2, inlineWindows: false },
     palette: ["#ff5fa2", "#ffd23f", "#3ddc97", "#5b7fff", "#ff8a3d", "#c86bff", "#2fe0d0"],
+    features: { ...NO_FEATURES, captionPosition: true, captionSize: true, captionBg: true, shapes: true },
   },
   {
     id: "cutout-block",
@@ -65,19 +71,20 @@ export const STYLE_PRESETS: StylePreset[] = [
     sublabel: "單色色塊 · 形狀挖出照片",
     shapeId: "star",
     bracketId: "none",
-    fontOptionId: "sans",
+    fontOptionId: "geometric",
     layout: "text-top",
     captionBgColor: "#d6232a",
-    textColor: "#d6232a",
-    scaleMultiplier: 3,
-    baseFontSizePx: 16,
-    lineHeightMultiplier: 1.5,
+    textColor: "#fff1ea",
+    scaleMultiplier: 2.4,
+    baseFontSizePx: 20,
+    lineHeightMultiplier: 1.4,
     letterSpacingPx: 0,
     grainEnabled: false,
     grainIntensity: 30,
     cutoutCount: 2,
     stickerStyleId: "flat",
-    decor: { captionFraction: 0.28, showCaptionText: false },
+    decor: { captionFraction: 0.3 },
+    features: { ...NO_FEATURES, captionSize: true, captionBg: true, shapes: true, windows: true },
   },
   {
     id: "journal-dots",
@@ -100,6 +107,7 @@ export const STYLE_PRESETS: StylePreset[] = [
     decor: { captionMode: "corner", tilesEnabled: true, tileNumbered: true, dotsEnabled: true, dotSizePx: 16 },
     tiles: { count: 4, region: { x0: 53, y0: 15, x1: 97, y1: 92 } },
     dots: { count: 5, region: { x0: 32, y0: 4, x1: 97, y1: 96 }, palette: JOURNAL_DOTS },
+    features: { ...NO_FEATURES, captionSize: true, captionBg: true, tiles: true, dots: true },
   },
   {
     id: "airy-words",
@@ -122,6 +130,7 @@ export const STYLE_PRESETS: StylePreset[] = [
     decor: { captionMode: "scatter", captionFraction: 1, tilesEnabled: true },
     tiles: { count: 1, region: { x0: 18, y0: 18, x1: 82, y1: 56 }, aspects: [1.5] },
     words: { region: { x0: 14, y0: 62, x1: 86, y1: 92 } },
+    features: { ...NO_FEATURES, captionMode: true, captionBg: true, tiles: true },
   },
   {
     id: "silhouette-frame",
@@ -130,19 +139,19 @@ export const STYLE_PRESETS: StylePreset[] = [
     shapeId: "square",
     bracketId: "none",
     fontOptionId: "sans",
-    layout: "text-top",
+    layout: "photo-top",
     captionBgColor: "#d3141b",
     textColor: "#fff5f0",
     scaleMultiplier: 1,
-    baseFontSizePx: 16,
+    baseFontSizePx: 18,
     lineHeightMultiplier: 1.5,
     letterSpacingPx: 0,
     grainEnabled: false,
     grainIntensity: 30,
     cutoutCount: 3,
     shapesEnabled: false,
-    captionEnabled: false,
-    decor: { frameInsetPct: 5, frameColor: "#d3141b", silhouetteEnabled: true, silhouetteColor: "#d3141b" },
+    decor: { frameInsetPct: 5, frameColor: "#d3141b", silhouetteEnabled: true, silhouetteColor: "#d3141b", captionFraction: 0.2 },
+    features: { ...NO_FEATURES, captionSize: true, frame: true, silhouette: true },
   },
 ];
 
@@ -201,7 +210,7 @@ export function buildStyleState(
     letterSpacingPx: preset.letterSpacingPx,
     grainEnabled: preset.grainEnabled,
     grainIntensity: preset.grainIntensity,
-    stickerStyleId: preset.stickerStyleId ?? "die-cut",
+    stickerStyleId: preset.stickerStyleId ?? "flat",
     shapesEnabled: preset.shapesEnabled ?? true,
     captionEnabled: preset.captionEnabled ?? true,
     decor,
