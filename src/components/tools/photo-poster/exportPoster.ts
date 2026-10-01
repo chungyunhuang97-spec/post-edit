@@ -32,21 +32,6 @@ const DUOTONE_EXPORT_MAX_DIMENSION = 3000;
 // Matches PosterPreview.tsx's identical constant -- the die-cut sticker
 // border's width, as a fraction of the cutout's own size.
 const STICKER_BORDER_FRACTION = 0.1;
-// Matches PosterPreview.tsx's identical constants -- the polaroid sticker
-// frame's side/bottom margins, as fractions of the cutout's own size.
-const POLAROID_SIDE_FRACTION = 0.09;
-const POLAROID_BOTTOM_FRACTION = 0.32;
-
-// Matches PosterPreview.tsx's identical function -- a small, stable
-// per-cutout tilt for the polaroid sticker style, derived from the
-// cutout's own id so the live preview and the exported PNG agree.
-function cutoutRotationDeg(id: string): number {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
-  const t = (Math.abs(hash) % 100) / 100;
-  return -8 + t * 16;
-}
-
 interface CoverGeometry {
   renderedW: number;
   renderedH: number;
@@ -508,52 +493,22 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
         ctx.fillStyle = cutout.color ?? stickerColor;
         ctx.fill(canvasShapePath(shape.id, x, y, squarePx));
       });
-    } else if (stickerStyleId === "polaroid") {
-      const sideMargin = POLAROID_SIDE_FRACTION * squarePx;
-      const bottomMargin = POLAROID_BOTTOM_FRACTION * squarePx;
-      cutouts.forEach((cutout) => {
-        const x = photoZone.x + (cutout.xPct / 100) * photoZone.w;
-        const y = photoZone.y + (cutout.yPct / 100) * photoZone.h;
-        const frameX = x - sideMargin;
-        const frameY = y - sideMargin;
-        const frameW = squarePx + 2 * sideMargin;
-        const frameH = squarePx + sideMargin + bottomMargin;
-        const cx = frameX + frameW / 2;
-        const cy = frameY + frameH / 2;
-        ctx.save();
-        ctx.translate(cx, cy);
-        ctx.rotate((cutoutRotationDeg(cutout.id) * Math.PI) / 180);
-        ctx.translate(-cx, -cy);
-        ctx.shadowColor = "rgba(0,0,0,0.4)";
-        ctx.shadowBlur = 6 * scale;
-        ctx.shadowOffsetY = 4 * scale;
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(frameX, frameY, frameW, frameH);
-        ctx.shadowColor = "transparent";
-        const crop = cropFor(cutout, 1.7);
-        if (crop) {
-          ctx.drawImage(crop.src, crop.rect.sx, crop.rect.sy, crop.rect.sSize, crop.rect.sSize, x, y, squarePx, squarePx);
-        } else {
-          ctx.fillStyle = cutout.color ?? stickerColor;
-          ctx.fillRect(x, y, squarePx, squarePx);
-        }
-        ctx.restore();
-      });
     } else {
-      // die-cut and halftone share the same white cut-line silhouette (a
-      // bit larger than the shape itself, shadowed); only the inner fill
-      // differs -- flat color vs. a dot pattern.
-      const stickerBorderPx = STICKER_BORDER_FRACTION * squarePx;
-      ctx.shadowColor = "rgba(0,0,0,0.4)";
-      ctx.shadowBlur = 5 * scale;
-      ctx.shadowOffsetY = 3 * scale;
-      ctx.fillStyle = "#ffffff";
-      cutouts.forEach((cutout) => {
-        const x = photoZone.x + (cutout.xPct / 100) * photoZone.w;
-        const y = photoZone.y + (cutout.yPct / 100) * photoZone.h;
-        ctx.fill(canvasShapePath(shape.id, x - stickerBorderPx, y - stickerBorderPx, squarePx + 2 * stickerBorderPx));
-      });
-      ctx.shadowColor = "transparent";
+      // die-cut gets a white cut line (a bit larger than the shape,
+      // shadowed); the halftone print sits directly on the photo.
+      if (stickerStyleId === "die-cut") {
+        const stickerBorderPx = STICKER_BORDER_FRACTION * squarePx;
+        ctx.shadowColor = "rgba(0,0,0,0.4)";
+        ctx.shadowBlur = 5 * scale;
+        ctx.shadowOffsetY = 3 * scale;
+        ctx.fillStyle = "#ffffff";
+        cutouts.forEach((cutout) => {
+          const x = photoZone.x + (cutout.xPct / 100) * photoZone.w;
+          const y = photoZone.y + (cutout.yPct / 100) * photoZone.h;
+          ctx.fill(canvasShapePath(shape.id, x - stickerBorderPx, y - stickerBorderPx, squarePx + 2 * stickerBorderPx));
+        });
+        ctx.shadowColor = "transparent";
+      }
       cutouts.forEach((cutout) => {
         const x = photoZone.x + (cutout.xPct / 100) * photoZone.w;
         const y = photoZone.y + (cutout.yPct / 100) * photoZone.h;

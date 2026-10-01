@@ -106,7 +106,7 @@ export interface CollageOption {
 
 /** How each cutout sticker is rendered onto the photo -- orthogonal to
  * ShapeId (the silhouette) and color (the fill). */
-export type StickerStyleId = "die-cut" | "halftone" | "polaroid" | "flat";
+export type StickerStyleId = "die-cut" | "halftone" | "flat";
 
 export interface StickerStyleOption {
   id: StickerStyleId;
@@ -222,6 +222,9 @@ export interface DecorState {
   captionMode: CaptionMode;
   tilesEnabled: boolean;
   tileNumbered: boolean;
+  /** What dragging a small photo does: move it, or pan the part of the
+   * source photo it shows. */
+  tileDragMode: "move" | "crop";
   dotsEnabled: boolean;
   dotSizePx: number;
   /** Paints the detected subject of the first photo as a flat color shape. */
@@ -237,6 +240,7 @@ export const DEFAULT_DECOR: DecorState = {
   captionMode: "flow",
   tilesEnabled: false,
   tileNumbered: false,
+  tileDragMode: "move",
   dotsEnabled: false,
   dotSizePx: 16,
   silhouetteEnabled: false,

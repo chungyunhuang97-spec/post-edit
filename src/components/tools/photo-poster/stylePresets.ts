@@ -77,7 +77,7 @@ export const STYLE_PRESETS: StylePreset[] = [
     grainIntensity: 30,
     cutoutCount: 2,
     stickerStyleId: "flat",
-    decor: { captionFraction: 0.4, showCaptionText: false },
+    decor: { captionFraction: 0.28, showCaptionText: false },
   },
   {
     id: "journal-dots",
@@ -206,8 +206,16 @@ export function buildStyleState(
     captionEnabled: preset.captionEnabled ?? true,
     decor,
     cutouts,
+    // At least one tile per uploaded photo, so none of them goes missing
+    // from looks (like 留白散字) that don't show the photo zone itself.
     tiles: preset.tiles
-      ? makeTiles(preset.tiles.count, preset.tiles.region, opts.canvasAspect, opts.photoCount, preset.tiles.aspects)
+      ? makeTiles(
+          Math.max(preset.tiles.count, opts.photoCount),
+          preset.tiles.region,
+          opts.canvasAspect,
+          opts.photoCount,
+          preset.tiles.aspects,
+        )
       : [],
     dots: preset.dots ? makeDots(preset.dots.count, preset.dots.region, preset.dots.palette) : [],
     wordPositions: preset.words ? makeWordPositions(wordCountOf(opts.caption), preset.words.region) : [],

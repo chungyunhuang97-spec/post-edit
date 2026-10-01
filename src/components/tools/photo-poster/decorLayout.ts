@@ -51,7 +51,7 @@ export function makeTiles(
     const stagger = col % 2 === 1 ? cellH * 0.12 : 0;
     tiles.push({
       id: makeId("tile"),
-      photo: photoCount > 1 && i % 2 === 1 ? 1 : 0,
+      photo: (photoCount > 1 ? i % 2 : 0) as 0 | 1,
       u: rand(0.15, 0.85),
       v: rand(0.15, 0.85),
       s: rand(0.22, 0.5),
@@ -124,4 +124,14 @@ export function captionWords(caption: string): string[] {
  * layer rather than inside the caption zone. */
 export function usesOverlayText(mode: CaptionMode): boolean {
   return mode !== "flow";
+}
+
+/** Re-deals which source photo each tile shows after the number of
+ * uploaded photos changes (and adds tiles if there are fewer tiles than
+ * photos), so every photo the user has uploaded appears at least once. */
+export function assignTilePhotos(tiles: Tile[], photoCount: number, canvasAspect: number, region: Region): Tile[] {
+  if (tiles.length === 0) return tiles;
+  const all = [...tiles];
+  if (all.length < photoCount) all.push(...makeTiles(photoCount - all.length, region, canvasAspect, photoCount));
+  return all.map((t, i) => ({ ...t, photo: (photoCount > 1 ? i % 2 : 0) as 0 | 1 }));
 }

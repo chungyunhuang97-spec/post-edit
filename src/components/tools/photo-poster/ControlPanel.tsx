@@ -168,6 +168,13 @@ export function ToolRail({ activeTab, onSelect, sizeLabel, onChangeSize, onExpor
   );
 }
 
+// Quick sizes for the caption block (share of the poster it covers).
+const CAPTION_SIZES = [
+  { label: "小", value: 0.28 },
+  { label: "中", value: 0.4 },
+  { label: "大", value: 0.55 },
+];
+
 const fieldClass = "rounded-md border border-line bg-surface-2 px-2 py-1.5 text-ink";
 
 function SectionTitle({ children }: { children: ReactNode }) {
@@ -302,6 +309,7 @@ export interface ToolPanelProps {
   tiles: Tile[];
   onTilesEnabledChange: (enabled: boolean) => void;
   onTileCountChange: (n: number) => void;
+  onTileZoomChange: (k: number) => void;
   onShuffleTiles: () => void;
   dots: Dot[];
   onDotsEnabledChange: (enabled: boolean) => void;
@@ -402,6 +410,7 @@ export function ToolPanel(props: ToolPanelProps) {
     tiles,
     onTilesEnabledChange,
     onTileCountChange,
+    onTileZoomChange,
     onShuffleTiles,
     dots,
     onDotsEnabledChange,
@@ -474,6 +483,8 @@ export function ToolPanel(props: ToolPanelProps) {
   } = props;
 
   const isDuo = collageLayoutId !== "single";
+  // Tiles show a crop `s` wide; zoom is how much tighter than half the photo.
+  const tileZoom = tiles.length ? Math.min(4, Math.max(0.6, 0.5 / (tiles.reduce((a, t) => a + t.s, 0) / tiles.length))) : 1;
   const captionFractionValue = decor.captionFraction ?? (layout === "overlay-h" || layout === "overlay-v" ? 0.34 : 0.5);
 
   return (
@@ -575,11 +586,27 @@ export function ToolPanel(props: ToolPanelProps) {
                 <p className="text-[11px] text-ink-faint">目前沒有顯示文案，照片鋪滿整張畫布。到「文案」分頁可以開啟。</p>
               )}
               {captionEnabled && (
-                <label className="flex flex-col gap-1">
+                <div className="flex flex-col gap-2">
                   <span className="flex justify-between text-xs text-ink-muted">
                     <span>文案區塊大小</span>
                     <span>{Math.round(captionFractionValue * 100)}%</span>
                   </span>
+                  <div className="grid grid-cols-3 gap-2">
+                    {CAPTION_SIZES.map((opt) => (
+                      <button
+                        key={opt.label}
+                        type="button"
+                        onClick={() => onDecorChange({ captionFraction: opt.value })}
+                        className={`rounded-md border px-2 py-1.5 text-xs font-medium transition ${
+                          Math.abs(captionFractionValue - opt.value) < 0.02
+                            ? "border-accent bg-accent-soft text-accent"
+                            : "border-line bg-surface-2 text-ink-muted"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
                   <input
                     type="range"
                     min={20}
@@ -588,8 +615,8 @@ export function ToolPanel(props: ToolPanelProps) {
                     value={Math.round(captionFractionValue * 100)}
                     onChange={(e) => onDecorChange({ captionFraction: Number(e.target.value) / 100 })}
                   />
-                  <span className="text-[11px] text-ink-faint">拉到 100% 就是整張都是紙（照片只剩小圖）</span>
-                </label>
+                  <span className="text-[11px] text-ink-faint">色塊太高壓到照片時，選「小」；拉到 100% 整張都是紙</span>
+                </div>
               )}
             </section>
 
@@ -958,6 +985,34 @@ export function ToolPanel(props: ToolPanelProps) {
                     <span>{tiles.length}</span>
                   </span>
                   <input type="range" min={1} max={8} value={tiles.length} onChange={(e) => onTileCountChange(Number(e.target.value))} />
+                </label>
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs text-ink-muted">在畫布上拖曳小照片時</span>
+                  <Segmented<"move" | "crop">
+                    options={[
+                      { id: "move", label: "移動位置" },
+                      { id: "crop", label: "調整顯示區塊" },
+                    ]}
+                    value={decor.tileDragMode}
+                    onChange={(id) => onDecorChange({ tileDragMode: id })}
+                  />
+                  {decor.tileDragMode === "crop" && (
+                    <span className="text-[11px] text-ink-faint">小照片會出現綠色外框，拖曳它可以移動裡面顯示的照片區塊</span>
+                  )}
+                </div>
+                <label className="flex flex-col gap-1">
+                  <span className="flex justify-between text-xs text-ink-muted">
+                    <span>小照片放大</span>
+                    <span>{tileZoom.toFixed(1)}x</span>
+                  </span>
+                  <input
+                    type="range"
+                    min={0.6}
+                    max={4}
+                    step={0.1}
+                    value={tileZoom}
+                    onChange={(e) => onTileZoomChange(Number(e.target.value))}
+                  />
                 </label>
                 <label className="flex items-center justify-between gap-3 text-xs text-ink-muted">
                   <span>顯示編號 (1)(2)…</span>

@@ -31,25 +31,6 @@ const DUOTONE_PREVIEW_MAX_DIMENSION = 900;
 // with exportPoster.ts's identical constant so the live preview and the
 // exported PNG agree.
 const STICKER_BORDER_FRACTION = 0.1;
-// Polaroid frame margins, as fractions of the sticker's own size -- thin on
-// three sides, noticeably thicker on the bottom, the one visual cue that
-// reads as "polaroid" instead of just "photo with a white border". Shared
-// with exportPoster.ts's identical constants.
-const POLAROID_SIDE_FRACTION = 0.09;
-const POLAROID_BOTTOM_FRACTION = 0.32;
-
-/** A small, stable-per-cutout tilt for the polaroid sticker style -- derived
- * from the cutout's own id (not Math.random()) so it doesn't reshuffle on
- * every unrelated re-render, and shared with exportPoster.ts's identical
- * function so the live preview and the exported PNG agree on which way each
- * one leans. */
-function cutoutRotationDeg(id: string): number {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
-  const t = (Math.abs(hash) % 100) / 100;
-  return -8 + t * 16;
-}
-
 interface CoverGeometry {
   boxW: number;
   boxH: number;
@@ -378,6 +359,8 @@ export function PosterPreview({
     startY: number;
     originX: number;
     originY: number;
+    originU: number;
+    originV: number;
   } | null>(null);
   const grainCanvasRef = useRef<HTMLCanvasElement>(null);
   const [textZoneSize, setTextZoneSize] = useState({ w: 0, h: 0 });
@@ -662,49 +645,22 @@ export function PosterPreview({
       );
     }
 
-    if (stickerStyleId === "polaroid") {
-      const sideMargin = POLAROID_SIDE_FRACTION * squareSizePx;
-      const bottomMargin = POLAROID_BOTTOM_FRACTION * squareSizePx;
-      return (
-        <div key={cutout.id} {...commonProps} className="absolute" style={outerStyle}>
-          <div
-            className="absolute"
-            style={{
-              left: -sideMargin,
-              top: -sideMargin,
-              right: -sideMargin,
-              bottom: -bottomMargin,
-              backgroundColor: "#ffffff",
-              boxShadow: "0 4px 8px rgba(0,0,0,0.4)",
-              transform: `rotate(${cutoutRotationDeg(cutout.id)}deg)`,
-            }}
-          >
-            {/* A polaroid always holds a square print: the photo under it,
-                magnified a bit so it reads as a detail shot rather than an
-                invisible window onto the same pixels. */}
-            <div
-              className="absolute left-0 top-0"
-              style={{ width: squareSizePx, height: squareSizePx, backgroundColor: fillColor, ...(cropBackground(cutout, 1.7) ?? {}) }}
-            />
-          </div>
-        </div>
-      );
-    }
-
     // die-cut and halftone share the same "white cut-line silhouette a bit
     // larger than the shape, shadowed" structure -- they only differ in
     // what fills the inner layer (flat color vs. dot pattern).
     return (
       <div key={cutout.id} {...commonProps} className="absolute" style={outerStyle}>
-        <div
-          className="absolute"
-          style={{
-            inset: -STICKER_BORDER_FRACTION * squareSizePx,
-            backgroundColor: "#ffffff",
-            clipPath: shape.clipPath,
-            filter: "drop-shadow(0 3px 5px rgba(0,0,0,0.4))",
-          }}
-        />
+        {stickerStyleId === "die-cut" && (
+          <div
+            className="absolute"
+            style={{
+              inset: -STICKER_BORDER_FRACTION * squareSizePx,
+              backgroundColor: "#ffffff",
+              clipPath: shape.clipPath,
+              filter: "drop-shadow(0 3px 5px rgba(0,0,0,0.4))",
+            }}
+          />
+        )}
         {stickerStyleId === "halftone" ? (
           (() => {
             const p = paneFor(cutout);
@@ -903,10 +859,12 @@ export function PosterPreview({
     index: number,
     originX: number,
     originY: number,
+    originU = 0,
+    originV = 0,
   ) {
     if (locked || !contentSize.w || !contentSize.h) return;
     e.currentTarget.setPointerCapture(e.pointerId);
-    overlayDrag.current = { kind, id, index, startX: e.clientX, startY: e.clientY, originX, originY };
+    overlayDrag.current = { kind, id, index, startX: e.clientX, startY: e.clientY, originX, originY, originU, originV };
   }
 
   function moveOverlayDrag(e: ReactPointerEvent<HTMLElement>) {
@@ -914,6 +872,23 @@ export function PosterPreview({
     if (!d || !contentSize.w || !contentSize.h) return;
     const x = d.originX + ((e.clientX - d.startX) / contentSize.w) * 100;
     const y = d.originY + ((e.clientY - d.startY) / contentSize.h) * 100;
+    if (d.kind === "tile" && decor.tileDragMode === "crop") {
+      // Pan which part of the source photo the tile shows (the content
+      // follows the finger), leaving the tile itself where it is.
+      const t = tiles.find((tile) => tile.id === d.id);
+      if (!t) return;
+      const nat = t.photo === 1 && imageUrl2 ? natural2 : natural;
+      if (!nat.w || !nat.h) return;
+      const tw = (t.wPct / 100) * contentSize.w;
+      const th = tw / t.aspect;
+      const r = tileSourceRect(t, nat.w, nat.h);
+      const halfU = r.sw / nat.w / 2;
+      const halfV = r.sh / nat.h / 2;
+      const u = Math.min(1 - halfU, Math.max(halfU, d.originU - ((e.clientX - d.startX) / tw) * (r.sw / nat.w)));
+      const v = Math.min(1 - halfV, Math.max(halfV, d.originV - ((e.clientY - d.startY) / th) * (r.sh / nat.h)));
+      onTilesChange(tiles.map((tile) => (tile.id === d.id ? { ...tile, u, v } : tile)));
+      return;
+    }
     if (d.kind === "tile") {
       onTilesChange(
         tiles.map((t) =>
@@ -957,8 +932,18 @@ export function PosterPreview({
       <div
         key={tile.id}
         className="pointer-events-auto absolute"
-        style={{ left: `${tile.xPct}%`, top: `${tile.yPct}%`, width: tw, height: th, cursor: overlayCursor, ...bg }}
-        onPointerDown={(e) => startOverlayDrag(e, "tile", tile.id, i, tile.xPct, tile.yPct)}
+        style={{
+          left: `${tile.xPct}%`,
+          top: `${tile.yPct}%`,
+          width: tw,
+          height: th,
+          cursor: overlayCursor,
+          // In crop mode the tiles are outlined so it's clear that dragging
+          // now pans the photo inside them instead of moving them.
+          boxShadow: decor.tileDragMode === "crop" ? "0 0 0 2px #c8ff3d" : undefined,
+          ...bg,
+        }}
+        onPointerDown={(e) => startOverlayDrag(e, "tile", tile.id, i, tile.xPct, tile.yPct, tile.u, tile.v)}
         onPointerMove={moveOverlayDrag}
         onPointerUp={endOverlayDrag}
       >

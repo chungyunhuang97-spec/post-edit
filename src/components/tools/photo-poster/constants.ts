@@ -60,7 +60,6 @@ export const STICKER_STYLE_OPTIONS: StickerStyleOption[] = [
   { id: "die-cut", label: "切割貼紙", sublabel: "白色切邊 + 陰影" },
   { id: "halftone", label: "網點印刷", sublabel: "照片轉成 riso 網點" },
   { id: "flat", label: "純色", sublabel: "無白邊、無陰影" },
-  { id: "polaroid", label: "拍立得", sublabel: "白框方形相片、微傾斜" },
 ];
 
 export const LAYOUT_OPTIONS: LayoutOption[] = [

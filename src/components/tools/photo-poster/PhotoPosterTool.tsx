@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BRACKET_OPTIONS, FONT_OPTIONS, SHAPE_OPTIONS, generateSocialCaption } from "./constants";
-import { captionWords, makeDots, makeTiles, makeWordPositions } from "./decorLayout";
+import { assignTilePhotos, captionWords, makeDots, makeTiles, makeWordPositions } from "./decorLayout";
 import { CanvasSizeStep } from "./CanvasSizeStep";
 import { ToolPanel, ToolRail, type TabId } from "./ControlPanel";
 import { renderPosterToCanvas } from "./exportPoster";
@@ -31,12 +31,17 @@ import { DEFAULT_DECOR } from "./types";
 import { randomizeCutouts, resetCutoutColors, resizeCutouts, setCutoutColor, wordCountOf } from "./useCutoutLayout";
 
 const DEFAULT_CUTOUT_COUNT = 6;
+// Where freshly generated free-placed layers land, in % of the poster.
+const TILE_REGION = { x0: 8, y0: 10, x1: 92, y1: 90 };
+const DOT_REGION = { x0: 5, y0: 5, x1: 95, y1: 95 };
+const WORD_REGION = { x0: 12, y0: 15, x1: 88, y1: 85 };
 const INITIAL_CAPTION = generateSocialCaption("neutral");
 const DEFAULT_CAPTION_BG = "#15111f";
 const DEFAULT_TEXT_COLOR = "#f5f3ff";
 
 export function PhotoPosterTool() {
   const [preset, setPreset] = useState<CanvasPreset | null>(null);
+  const canvasAspect = preset ? preset.width / preset.height : 0.8;
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   // Second photo + its own upload error, only meaningful once collageLayout
@@ -186,7 +191,9 @@ export function PhotoPosterTool() {
     setUploadError2(null);
     setImageUrl2(result.url);
     setPan2({ x: 0.5, y: 0.5 });
-  }, []);
+    // Every uploaded photo should show up in the small-photo layer too.
+    if (collageLayoutId !== "single") setTiles((prev) => assignTilePhotos(prev, 2, canvasAspect, TILE_REGION));
+  }, [collageLayoutId, canvasAspect]);
 
   useEffect(() => {
     function onPaste(e: ClipboardEvent) {
@@ -204,6 +211,7 @@ export function PhotoPosterTool() {
         if (intoSecond) {
           setUploadError2(null);
           setImageUrl2(result.url);
+          setTiles((prev) => assignTilePhotos(prev, 2, canvasAspect, TILE_REGION));
           setPan2({ x: 0.5, y: 0.5 });
         } else {
           setUploadError(null);
@@ -213,7 +221,7 @@ export function PhotoPosterTool() {
     }
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
-  }, [handleImageChange, collageLayoutId, imageUrl, imageUrl2]);
+  }, [handleImageChange, collageLayoutId, imageUrl, imageUrl2, canvasAspect]);
 
   // Runs subject segmentation (a client-side ML model, see
   // subjectSegmentation.ts) only when the "主體網點" toggle is actually on
@@ -263,6 +271,7 @@ export function PhotoPosterTool() {
 
   const handleCollageLayoutChange = useCallback((id: CollageLayoutId) => {
     setCollageLayoutId(id);
+    setTiles((prev) => assignTilePhotos(prev, id !== "single" && imageUrl2 ? 2 : 1, canvasAspect, TILE_REGION));
     if (id !== "single") {
       // The default scale was tuned for a sticker sitting inline within a
       // line of caption text -- against two full-bleed photos with no
@@ -273,7 +282,7 @@ export function PhotoPosterTool() {
       // choice.
       setScaleMultiplier((prev) => (prev <= 0.5 ? 1.4 : prev));
     }
-  }, []);
+  }, [imageUrl2, canvasAspect]);
 
   // Applies a full named look in one go -- every field a style preset
   // covers is overwritten (including a fresh cutout scatter/count, so the
@@ -318,18 +327,14 @@ export function PhotoPosterTool() {
   // --- Free-placed layers (small photos, dots, scattered words). Turning a
   // layer on for the first time generates it; the count sliders keep what's
   // already placed and only add/remove the difference; "shuffle" re-rolls.
-  const canvasAspect = preset ? preset.width / preset.height : 0.8;
   const photoCount = collageLayoutId !== "single" && imageUrl2 ? 2 : 1;
-  const TILE_REGION = { x0: 8, y0: 10, x1: 92, y1: 90 };
-  const DOT_REGION = { x0: 5, y0: 5, x1: 95, y1: 95 };
-  const WORD_REGION = { x0: 12, y0: 15, x1: 88, y1: 85 };
 
   const handleTilesEnabledChange = useCallback(
     (enabled: boolean) => {
       patchDecor({ tilesEnabled: enabled });
       if (enabled && tiles.length === 0) setTiles(makeTiles(4, TILE_REGION, canvasAspect, photoCount));
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
     [tiles.length, canvasAspect, photoCount, patchDecor],
   );
   const handleTileCountChange = useCallback(
@@ -337,12 +342,17 @@ export function PhotoPosterTool() {
       setTiles((prev) =>
         n <= prev.length ? prev.slice(0, n) : [...prev, ...makeTiles(n - prev.length, TILE_REGION, canvasAspect, photoCount)],
       ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
     [canvasAspect, photoCount],
+  );
+  // k = how many times tighter than "half the photo" each small photo crops.
+  const handleTileZoomChange = useCallback(
+    (k: number) => setTiles((prev) => prev.map((t) => ({ ...t, s: Math.min(0.95, 0.5 / k) }))),
+    [],
   );
   const handleShuffleTiles = useCallback(
     () => setTiles((prev) => makeTiles(prev.length, TILE_REGION, canvasAspect, photoCount)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
     [canvasAspect, photoCount],
   );
 
@@ -351,7 +361,7 @@ export function PhotoPosterTool() {
       patchDecor({ dotsEnabled: enabled });
       if (enabled && dots.length === 0) setDots(makeDots(5, DOT_REGION, ["#f4b400", "#1a56db", "#d9381e", "#188038"]));
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
     [dots.length, patchDecor],
   );
   const handleDotCountChange = useCallback(
@@ -361,7 +371,7 @@ export function PhotoPosterTool() {
           ? prev.slice(0, n)
           : [...prev, ...makeDots(n - prev.length, DOT_REGION, ["#f4b400", "#1a56db", "#d9381e", "#188038"])],
       ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
     [],
   );
   const handleShuffleDots = useCallback(
@@ -372,7 +382,7 @@ export function PhotoPosterTool() {
           color: prev[i]?.color ?? d.color,
         })),
       ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
     [],
   );
   const handleDotColorChange = useCallback(
@@ -381,7 +391,7 @@ export function PhotoPosterTool() {
   );
   const handleShuffleWords = useCallback(
     () => setWordPositions(makeWordPositions(captionWords(caption).length, WORD_REGION)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
     [caption],
   );
 
@@ -391,7 +401,7 @@ export function PhotoPosterTool() {
     setWordPositions((prev) =>
       prev.length >= count ? prev : [...prev, ...makeWordPositions(count - prev.length, WORD_REGION)],
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []);
   const handleDecorChange = useCallback(
     (patch: Partial<DecorState>) => {
@@ -658,6 +668,7 @@ export function PhotoPosterTool() {
             tiles={tiles}
             onTilesEnabledChange={handleTilesEnabledChange}
             onTileCountChange={handleTileCountChange}
+            onTileZoomChange={handleTileZoomChange}
             onShuffleTiles={handleShuffleTiles}
             dots={dots}
             onDotsEnabledChange={handleDotsEnabledChange}
