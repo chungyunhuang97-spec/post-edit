@@ -627,12 +627,12 @@ export function ToolPanel(props: ToolPanelProps) {
                 <Desc>{isDuo ? "每張照片各自縮放，也可以在畫布上各自拖曳調整位置" : "直接拖曳上方預覽的照片可調整顯示位置"}</Desc>
               )}
             </section>
-            {(features.captionPosition || features.captionSize) && (
+            {(
             <section className="flex flex-col gap-3 border-t border-line pt-3">
-              <SectionTitle>{features.captionPosition ? "文案區塊・位置與大小" : "文案區塊・大小"}</SectionTitle>
+              <SectionTitle>文案區塊・位置與大小</SectionTitle>
               {!captionEnabled ? (
                 <p className="text-[11px] text-ink-faint">目前沒有顯示文案，照片鋪滿整張畫布。到「文案」分頁可以開啟。</p>
-              ) : features.captionPosition ? (
+              ) : (
                 <div className="grid grid-cols-2 gap-2">
                   {LAYOUT_OPTIONS.map((opt) => (
                     <button
@@ -648,8 +648,8 @@ export function ToolPanel(props: ToolPanelProps) {
                     </button>
                   ))}
                 </div>
-              ) : null}
-              {captionEnabled && features.captionSize && (
+              )}
+              {captionEnabled && (
                 <div className="flex flex-col gap-2">
                   <span className="flex justify-between text-xs text-ink-muted">
                     <span>文案區塊大小</span>
