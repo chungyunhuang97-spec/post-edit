@@ -11,6 +11,7 @@ import type {
   CollageLayoutId,
   Cutout,
   DecorState,
+  Doodle,
   Dot,
   FontOptionId,
   PosterLayoutId,
@@ -360,6 +361,10 @@ export interface ToolPanelProps {
   onDotsEnabledChange: (enabled: boolean) => void;
   onDotCountChange: (n: number) => void;
   onShuffleDots: () => void;
+  doodles: Doodle[];
+  onDoodlesEnabledChange: (enabled: boolean) => void;
+  onDoodleCountChange: (n: number) => void;
+  onShuffleDoodles: () => void;
   onDotColorChange: (id: string, color: string) => void;
   onShuffleWords: () => void;
   /** Controls the active style uses (everything when none / "show all"). */
@@ -463,6 +468,10 @@ export function ToolPanel(props: ToolPanelProps) {
     onDotsEnabledChange,
     onDotCountChange,
     onShuffleDots,
+    doodles,
+    onDoodlesEnabledChange,
+    onDoodleCountChange,
+    onShuffleDoodles,
     onDotColorChange,
     onShuffleWords,
     onExport,
@@ -700,7 +709,20 @@ export function ToolPanel(props: ToolPanelProps) {
             {features.captionBg && !linkedColor && captionEnabled && (
               <section className="flex flex-col gap-3 border-t border-line pt-3">
                 <SectionTitle>底色</SectionTitle>
-                <ColorField label="文案區塊底色" value={captionBgColor} onChange={onCaptionBgColorChange} />
+                {(layout === "overlay-h" || layout === "overlay-v") && (
+                  <label className="flex items-center justify-between gap-3 text-xs text-ink-muted">
+                    <span>透明（文字直接壓在照片上）</span>
+                    <input
+                      type="checkbox"
+                      checked={decor.captionBgTransparent}
+                      onChange={(e) => onDecorChange({ captionBgTransparent: e.target.checked })}
+                      className="h-4 w-4 shrink-0 accent-accent"
+                    />
+                  </label>
+                )}
+                {!(decor.captionBgTransparent && (layout === "overlay-h" || layout === "overlay-v")) && (
+                  <ColorField label="文案區塊底色" value={captionBgColor} onChange={onCaptionBgColorChange} />
+                )}
                 <Desc>文案區塊（文字所在的色塊）的顏色</Desc>
               </section>
             )}
@@ -1012,6 +1034,44 @@ export function ToolPanel(props: ToolPanelProps) {
             </>
             )}
 
+            {features.doodles && (
+            <>
+            <div className="border-t border-line" />
+            <label className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-2 px-3 py-1.5 text-xs text-ink-muted md:py-2">
+              <span className="flex flex-col gap-0.5">
+                <span className="font-medium text-ink">顯示手繪塗鴉</span>
+                <Desc>麥克筆風格的星星、音符、愛心…（可拖曳到畫布任何地方）</Desc>
+              </span>
+              <input
+                type="checkbox"
+                checked={decor.doodlesEnabled}
+                onChange={(e) => onDoodlesEnabledChange(e.target.checked)}
+                className="h-4 w-4 shrink-0 accent-accent"
+              />
+            </label>
+            {decor.doodlesEnabled && (
+              <>
+                <label className="grid grid-cols-[5.5rem_1fr_3rem] items-center gap-2 text-xs text-ink-muted"><span>塗鴉數量</span><input type="range" min={1} max={12} value={doodles.length} onChange={(e) => onDoodleCountChange(Number(e.target.value))} /><span className="text-right tabular-nums">{doodles.length}</span></label>
+                <label className="grid grid-cols-[5.5rem_1fr_3rem] items-center gap-2 text-xs text-ink-muted"><span>塗鴉大小</span><input
+                    type="range"
+                    min={6}
+                    max={40}
+                    value={decor.doodleSizePct}
+                    onChange={(e) => onDecorChange({ doodleSizePct: Number(e.target.value) })}
+                  /><span className="text-right tabular-nums">{decor.doodleSizePct}%</span></label>
+                <ColorField label="筆色" value={decor.doodleColor} onChange={(hex) => onDecorChange({ doodleColor: hex })} />
+                <button
+                  type="button"
+                  onClick={onShuffleDoodles}
+                  className="rounded-md border border-line bg-surface-2 px-3 py-1.5 text-xs font-medium text-ink-muted hover:text-ink"
+                >
+                  重新畫過
+                </button>
+              </>
+            )}
+            </>
+            )}
+
             {features.dots && (
             <>
             <div className="border-t border-line" />
@@ -1224,6 +1284,17 @@ export function ToolPanel(props: ToolPanelProps) {
                     >
                       重新散落（也可以直接在畫布上拖曳單字）
                     </button>
+                  )}
+                  {decor.captionMode === "scatter" && (
+                    <label className="flex items-center justify-between gap-3 text-xs text-ink-muted">
+                      <span>文字轉 90° 直排（圓點在前）</span>
+                      <input
+                        type="checkbox"
+                        checked={decor.scatterVertical}
+                        onChange={(e) => onDecorChange({ scatterVertical: e.target.checked })}
+                        className="h-4 w-4 shrink-0 accent-accent"
+                      />
+                    </label>
                   )}
                 </div>
                 )}

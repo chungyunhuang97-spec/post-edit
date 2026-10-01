@@ -130,11 +130,11 @@ export interface StickerStyleOption {
  * drifting back to the same default look. */
 export type StylePresetId =
   | "film-dump"
-  | "gallery-poster"
+  | "marker-doodle"
   | "cutout-block"
   | "journal-dots"
   | "airy-words"
-  | "cinema-title";
+  | "vertical-dots";
 
 /** Which groups of controls a style actually uses. Anything a style leaves
  * out is hidden while that style is active, so the panels only list what
@@ -159,6 +159,8 @@ export interface StyleFeatures {
   tiles: boolean;
   dots: boolean;
   silhouette: boolean;
+  /** Hand-drawn marker doodles. */
+  doodles: boolean;
 }
 
 export const ALL_FEATURES: StyleFeatures = {
@@ -173,6 +175,7 @@ export const ALL_FEATURES: StyleFeatures = {
   tiles: true,
   dots: true,
   silhouette: true,
+  doodles: true,
 };
 
 export interface StylePreset {
@@ -209,6 +212,7 @@ export interface StylePreset {
   /** Free-placed small photos, solid dots and scattered word anchors, each
    * generated inside a region given in % of the poster. */
   tiles?: { count: number; region: { x0: number; y0: number; x1: number; y1: number }; aspects?: number[] };
+  doodles?: { count: number; region: { x0: number; y0: number; x1: number; y1: number } };
   dots?: { count: number; region: { x0: number; y0: number; x1: number; y1: number }; palette: string[] };
   words?: { region: { x0: number; y0: number; x1: number; y1: number } };
   /** Cycling per-cutout color override (candy-sticker look). Omitted means
@@ -243,6 +247,20 @@ export interface Tile {
   wPct: number;
   /** width / height */
   aspect: number;
+}
+
+export type DoodleKind = "star" | "note" | "heart" | "sparkle" | "loop" | "arrow";
+
+/** A hand-drawn marker doodle (see doodles.ts). Top-left corner in % of the
+ * anchor zone; its size is shared (DecorState.doodleSizePct). */
+export interface Doodle {
+  id: string;
+  kind: DoodleKind;
+  seed: number;
+  xPct: number;
+  yPct: number;
+  /** degrees */
+  rot: number;
 }
 
 /** A solid decorative dot (the colored-sticker-dots look). */
@@ -287,6 +305,14 @@ export interface DecorState {
   /** Paints the detected subject of the first photo as a flat color shape. */
   silhouetteEnabled: boolean;
   silhouetteColor: string;
+  doodlesEnabled: boolean;
+  doodleColor: string;
+  /** Width of each doodle as a % of the poster's content width. */
+  doodleSizePct: number;
+  /** Scattered words are turned 90 degrees, dot first. */
+  scatterVertical: boolean;
+  /** Overlay layouts only: the text band has no fill, so text sits straight on the photo. */
+  captionBgTransparent: boolean;
   /** Also cuts the subject out and pastes it (with a white sticker border)
    * elsewhere on the poster, leaving the flat silhouette where it was. */
   subjectPaste: boolean;
@@ -313,6 +339,11 @@ export const DEFAULT_DECOR: DecorState = {
   dotSizePx: 16,
   silhouetteEnabled: false,
   silhouetteColor: "#c8102e",
+  doodlesEnabled: false,
+  doodleColor: "#e5251b",
+  doodleSizePct: 16,
+  scatterVertical: false,
+  captionBgTransparent: false,
   subjectPaste: false,
   subjectPasteX: 54,
   subjectPasteY: 58,

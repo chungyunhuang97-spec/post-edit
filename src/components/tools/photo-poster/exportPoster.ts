@@ -9,6 +9,7 @@ import type {
   CollageLayoutId,
   Cutout,
   DecorState,
+  Doodle,
   Dot,
   PosterLayoutId,
   ShapeOption,
@@ -18,6 +19,7 @@ import type {
 } from "./types";
 import { buildCaptionTokens } from "./useCutoutLayout";
 import { canvasShapePath } from "./shapes";
+import { DOODLE_STROKE, doodlePath } from "./doodles";
 import { computeZones, type ZoneRect } from "./zones";
 import { drawHalftoneTile, locateInPane, stickerSourceRect, type SourceRect } from "./stickerCrop";
 
@@ -140,6 +142,7 @@ export interface RenderPosterParams {
   decor: DecorState;
   tiles: Tile[];
   dots: Dot[];
+  doodles: Doodle[];
   wordPositions: WordPos[];
   /** Per-photo zoom >= 1 beyond the minimum cover-fit scale. */
   zooms: number[];
@@ -185,6 +188,7 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
     decor,
     tiles,
     dots,
+    doodles,
     wordPositions,
     zooms,
     layout,
@@ -374,7 +378,7 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   // The overlay layouts have no separate background fill under the text
   // band (the initial full-canvas fill is now covered by the photo drawn
   // above), so paint an opaque band there before the text sits on top.
-  if (isOverlay && captionEnabled) {
+  if (isOverlay && captionEnabled && !decor.captionBgTransparent) {
     ctx.fillStyle = captionBgColor;
     ctx.fillRect(textZone.x, textZone.y, textZone.w, textZone.h);
   }
@@ -497,6 +501,24 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
     });
   }
 
+  if (decor.doodlesEnabled) {
+    const size = (decor.doodleSizePct / 100) * content.w;
+    ctx.strokeStyle = decor.doodleColor;
+    ctx.lineWidth = DOODLE_STROKE * (size / 100);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    doodles.forEach((d) => {
+      ctx.save();
+      ctx.translate(px(d.xPct) + size / 2, py(d.yPct) + size / 2);
+      ctx.rotate((d.rot * Math.PI) / 180);
+      ctx.translate(-size / 2, -size / 2);
+      ctx.scale(size / 100, size / 100);
+      ctx.lineWidth = DOODLE_STROKE;
+      ctx.stroke(new Path2D(doodlePath(d.kind, d.seed)));
+      ctx.restore();
+    });
+  }
+
   if (captionEnabled && decor.showCaptionText && decor.captionMode === "scatter") {
     ctx.font = `${fontPx}px ${fontFamily}`;
     ctx.fillStyle = textColor;
@@ -507,6 +529,20 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
       if (!pos) return;
       const cx = px(pos.xPct);
       const cy = py(pos.yPct);
+      if (decor.scatterVertical) {
+        // Turned 90deg clockwise: dot first, the word running down from it.
+        const r = fontPx * 0.4;
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(Math.PI / 2);
+        ctx.beginPath();
+        ctx.arc(0, 0, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.textAlign = "left";
+        ctx.fillText(word, r * 2 + fontPx * 0.35, fontPx * 0.35);
+        ctx.restore();
+        return;
+      }
       ctx.fillText(word, cx, cy + fontPx * 0.35);
       ctx.beginPath();
       ctx.arc(cx, cy - fontPx * 0.95, 2 * scale, 0, Math.PI * 2);

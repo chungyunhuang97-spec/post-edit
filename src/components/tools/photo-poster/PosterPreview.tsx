@@ -13,6 +13,7 @@ import type {
   CollageLayoutId,
   Cutout,
   DecorState,
+  Doodle,
   Dot,
   FontOption,
   PosterLayoutId,
@@ -22,6 +23,7 @@ import type {
   WordPos,
 } from "./types";
 import { paneFracs } from "./collage";
+import { DOODLE_STROKE, doodlePath } from "./doodles";
 import { drawHalftoneTile, locateInPane, stickerSourceRect, type CropGeom } from "./stickerCrop";
 import { buildCaptionTokens, clampPct } from "./useCutoutLayout";
 
@@ -126,6 +128,8 @@ export interface PosterPreviewProps {
   onTilesChange: (next: Tile[]) => void;
   dots: Dot[];
   onDotsChange: (next: Dot[]) => void;
+  doodles: Doodle[];
+  onDoodlesChange: (next: Doodle[]) => void;
   wordPositions: WordPos[];
   onWordPositionsChange: (next: WordPos[]) => void;
   zooms: number[];
@@ -281,6 +285,8 @@ export function PosterPreview({
   onTilesChange,
   dots,
   onDotsChange,
+  doodles,
+  onDoodlesChange,
   wordPositions,
   onWordPositionsChange,
   zooms,
@@ -310,7 +316,7 @@ export function PosterPreview({
     contentObserverRef.current = observer;
   }, []);
   const overlayDrag = useRef<{
-    kind: "tile" | "dot" | "word";
+    kind: "tile" | "dot" | "word" | "doodle";
     id: string;
     index: number;
     startX: number;
@@ -586,10 +592,11 @@ export function PosterPreview({
   const bandFraction = fraction ?? OVERLAY_BAND_FRACTION;
   const splitFraction = fraction ?? TOP_ZONE_FRACTION;
   const bandInset = `${((1 - bandFraction) / 2) * 100}%`;
+  const bandBg = decor.captionBgTransparent ? "transparent" : captionBgColor;
   const overlayTextStyle: React.CSSProperties = isOverlay
     ? layout === "overlay-h"
-      ? { position: "absolute", left: 0, right: 0, top: bandInset, height: `${bandFraction * 100}%`, backgroundColor: captionBgColor }
-      : { position: "absolute", top: 0, bottom: 0, left: bandInset, width: `${bandFraction * 100}%`, backgroundColor: captionBgColor }
+      ? { position: "absolute", left: 0, right: 0, top: bandInset, height: `${bandFraction * 100}%`, backgroundColor: bandBg }
+      : { position: "absolute", top: 0, bottom: 0, left: bandInset, width: `${bandFraction * 100}%`, backgroundColor: bandBg }
     : isRow
       ? { width: `${splitFraction * 100}%` }
       : { height: `${splitFraction * 100}%` };
@@ -741,8 +748,8 @@ export function PosterPreview({
   // corner / scatter caption modes. Positions are % of the area inside the
   // frame, so they follow any canvas size; the export mirrors this. ---
   function startOverlayDrag(
-    e: ReactPointerEvent<HTMLElement>,
-    kind: "tile" | "dot" | "word",
+    e: ReactPointerEvent<Element>,
+    kind: "tile" | "dot" | "word" | "doodle",
     id: string,
     index: number,
     originX: number,
@@ -755,7 +762,7 @@ export function PosterPreview({
     overlayDrag.current = { kind, id, index, startX: e.clientX, startY: e.clientY, originX, originY, originU, originV };
   }
 
-  function moveOverlayDrag(e: ReactPointerEvent<HTMLElement>) {
+  function moveOverlayDrag(e: ReactPointerEvent<Element>) {
     const d = overlayDrag.current;
     if (!d || !zoneRect.w || !zoneRect.h) return;
     const x = d.originX + ((e.clientX - d.startX) / zoneRect.w) * 100;
@@ -794,6 +801,19 @@ export function PosterPreview({
                 yPct: within(y, minY, maxY - ((t.wPct / t.aspect) * zoneRect.w) / zoneRect.h),
               }
             : t,
+        ),
+      );
+    } else if (d.kind === "doodle") {
+      const sizePx = (decor.doodleSizePct / 100) * contentSize.w;
+      onDoodlesChange(
+        doodles.map((dd) =>
+          dd.id === d.id
+            ? {
+                ...dd,
+                xPct: within(x, minX, maxX - (sizePx / zoneRect.w) * 100),
+                yPct: within(y, minY, maxY - (sizePx / zoneRect.h) * 100),
+              }
+            : dd,
         ),
       );
     } else if (d.kind === "dot") {
@@ -933,9 +953,66 @@ export function PosterPreview({
             onPointerUp={endOverlayDrag}
           />
         ))}
+      {decor.doodlesEnabled &&
+        doodles.map((d) => {
+          const sizePx = (decor.doodleSizePct / 100) * contentSize.w;
+          return (
+            <svg
+              key={d.id}
+              viewBox="0 0 100 100"
+              className="pointer-events-auto absolute overflow-visible"
+              style={{
+                left: `${d.xPct}%`,
+                top: `${d.yPct}%`,
+                width: sizePx,
+                height: sizePx,
+                transform: `rotate(${d.rot}deg)`,
+                cursor: overlayCursor,
+              }}
+              onPointerDown={(e) => startOverlayDrag(e, "doodle", d.id, 0, d.xPct, d.yPct)}
+              onPointerMove={moveOverlayDrag}
+              onPointerUp={endOverlayDrag}
+            >
+              <path
+                d={doodlePath(d.kind, d.seed)}
+                fill="none"
+                stroke={decor.doodleColor}
+                strokeWidth={DOODLE_STROKE}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          );
+        })}
       {words.map((word, i) => {
         const pos = wordPositions[i];
         if (!pos) return null;
+        if (decor.scatterVertical) {
+          const r = baseFontSizePx * 0.4;
+          return (
+            <div
+              key={`${i}-${word}`}
+              className="pointer-events-auto absolute flex items-center whitespace-nowrap"
+              style={{
+                left: `${pos.xPct}%`,
+                top: `${pos.yPct}%`,
+                gap: baseFontSizePx * 0.35,
+                transformOrigin: "0 0",
+                transform: `rotate(90deg) translate(${-r}px, -50%)`,
+                fontFamily: textFontFamily,
+                fontSize: baseFontSizePx,
+                lineHeight: 1,
+                cursor: overlayCursor,
+              }}
+              onPointerDown={(e) => startOverlayDrag(e, "word", word, i, pos.xPct, pos.yPct)}
+              onPointerMove={moveOverlayDrag}
+              onPointerUp={endOverlayDrag}
+            >
+              <span className="block shrink-0 rounded-full" style={{ width: r * 2, height: r * 2, backgroundColor: textColor }} />
+              {word}
+            </div>
+          );
+        }
         return (
           <div
             key={`${i}-${word}`}

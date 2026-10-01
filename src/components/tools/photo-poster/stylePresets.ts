@@ -1,3 +1,4 @@
+import { makeDoodles } from "./doodles";
 import { makeDots, makeTiles, makeWordPositions } from "./decorLayout";
 import { zoneAspectOf } from "./zones";
 import { ALL_FEATURES, DEFAULT_DECOR } from "./types";
@@ -5,6 +6,7 @@ import type {
   BracketStyleId,
   Cutout,
   DecorState,
+  Doodle,
   Dot,
   FontOptionId,
   PosterLayoutId,
@@ -45,34 +47,27 @@ export const STYLE_PRESETS: StylePreset[] = [
     features: { ...NO_FEATURES, captionBlock: true, captionPosition: true, captionSize: true, captionBg: true, shapes: true, windows: true },
   },
   {
-    id: "gallery-poster",
-    label: "展覽海報",
-    sublabel: "細黑框 · 窄文案欄 · 襯線角落小字 · 單一紅點",
-    shapeId: "circle",
+    id: "marker-doodle",
+    label: "塗鴉標記",
+    sublabel: "滿版照片 · 紅色麥克筆手繪塗鴉",
+    shapeId: "square",
     bracketId: "none",
-    fontOptionId: "elegant-serif",
-    layout: "split-left",
-    captionBgColor: "#efece4",
-    textColor: "#1a1a1a",
+    fontOptionId: "handwriting",
+    layout: "text-top",
+    captionBgColor: "#f4f3ee",
+    textColor: "#e5251b",
     scaleMultiplier: 1,
-    baseFontSizePx: 15,
-    lineHeightMultiplier: 1.5,
-    letterSpacingPx: 1,
+    baseFontSizePx: 22,
+    lineHeightMultiplier: 1.3,
+    letterSpacingPx: 0,
     grainEnabled: false,
     grainIntensity: 30,
     cutoutCount: 3,
     shapesEnabled: false,
-    decor: {
-      captionMode: "corner",
-      captionFraction: 0.3,
-      frameInsetPct: 4,
-      frameColor: "#1a1a1a",
-      dotsEnabled: true,
-      dotSizePx: 34,
-    },
-    // One red dot low in the narrow paper column, as on a printed exhibition poster.
-    dots: { count: 1, region: { x0: 30, y0: 78, x1: 40, y1: 88 }, palette: ["#d9381e"] },
-    features: { ...NO_FEATURES, captionPosition: true, captionSize: true, captionBg: true, frame: true, dots: true },
+    captionEnabled: false,
+    decor: { doodlesEnabled: true, doodleColor: "#e5251b", doodleSizePct: 17 },
+    doodles: { count: 5, region: { x0: 2, y0: 2, x1: 98, y1: 98 } },
+    features: { ...NO_FEATURES, captionBlock: true, doodles: true, frame: true },
   },
   {
     id: "cutout-block",
@@ -145,25 +140,26 @@ export const STYLE_PRESETS: StylePreset[] = [
     features: { ...NO_FEATURES, captionMode: true, captionBg: true, tiles: true },
   },
   {
-    id: "cinema-title",
-    label: "電影字幕",
-    sublabel: "黑幕 · 寬字距大寫 · 底片顆粒",
-    shapeId: "square",
+    id: "vertical-dots",
+    label: "直排圓點字",
+    sublabel: "文字直接壓在照片上 · 轉 90° 單字 · 圓點",
+    shapeId: "circle",
     bracketId: "none",
-    fontOptionId: "condensed",
-    layout: "photo-top",
-    captionBgColor: "#0b0b0c",
-    textColor: "#f2efe6",
+    fontOptionId: "sans",
+    layout: "overlay-h",
+    captionBgColor: "#14141a",
+    textColor: "#f6f1e4",
     scaleMultiplier: 1,
-    baseFontSizePx: 26,
-    lineHeightMultiplier: 1.2,
-    letterSpacingPx: 6,
+    baseFontSizePx: 18,
+    lineHeightMultiplier: 1.4,
+    letterSpacingPx: 0,
     grainEnabled: true,
-    grainIntensity: 14,
+    grainIntensity: 12,
     cutoutCount: 3,
     shapesEnabled: false,
-    decor: { captionFraction: 0.16, inlineWindows: false },
-    features: { ...NO_FEATURES, captionSize: true, captionBg: true },
+    decor: { captionMode: "scatter", captionFraction: 1, captionBgTransparent: true, scatterVertical: true },
+    words: { region: { x0: 8, y0: 6, x1: 92, y1: 60 } },
+    features: { ...NO_FEATURES, captionBlock: true, captionMode: true, captionBg: true },
   },
 ];
 
@@ -192,6 +188,7 @@ export interface StyleState {
   cutouts: Cutout[];
   tiles: Tile[];
   dots: Dot[];
+  doodles: Doodle[];
   wordPositions: WordPos[];
 }
 
@@ -239,6 +236,7 @@ export function buildStyleState(
           preset.tiles.aspects,
         )
       : [],
+    doodles: preset.doodles ? makeDoodles(preset.doodles.count, preset.doodles.region, decor.doodleSizePct, zoneAspect) : [],
     dots: preset.dots ? makeDots(preset.dots.count, preset.dots.region, preset.dots.palette) : [],
     wordPositions: preset.words ? makeWordPositions(wordCountOf(opts.caption), preset.words.region) : [],
   };
