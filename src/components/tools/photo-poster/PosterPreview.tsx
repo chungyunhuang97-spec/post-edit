@@ -161,13 +161,16 @@ export interface PosterPreviewProps {
   bracket: BracketOption;
   shape: ShapeOption;
   stickerStyleId: StickerStyleId;
-  topBgColor: string;
+  captionBgColor: string;
   textColor: string;
+  stickerColor: string;
   pan: { x: number; y: number };
   onPanChange: (next: { x: number; y: number }) => void;
   zoom: number;
   layout: PosterLayoutId;
   duotoneEnabled: boolean;
+  duotoneDark: string;
+  duotoneLight: string;
   grainEnabled: boolean;
   grainIntensity: number;
   subjectHalftoneEnabled: boolean;
@@ -198,13 +201,16 @@ export function PosterPreview({
   bracket,
   shape,
   stickerStyleId,
-  topBgColor,
+  captionBgColor,
   textColor,
+  stickerColor,
   pan,
   onPanChange,
   zoom,
   layout,
   duotoneEnabled,
+  duotoneDark,
+  duotoneLight,
   grainEnabled,
   grainIntensity,
   subjectHalftoneEnabled,
@@ -255,8 +261,8 @@ export function PosterPreview({
     boxObserverRef.current = observer;
   }, []);
 
-  const duotoneUrl = useDuotoneUrl(imageUrl, natural, duotoneEnabled, topBgColor, textColor);
-  const duotoneUrl2 = useDuotoneUrl(imageUrl2, natural2, duotoneEnabled, topBgColor, textColor);
+  const duotoneUrl = useDuotoneUrl(imageUrl, natural, duotoneEnabled, duotoneDark, duotoneLight);
+  const duotoneUrl2 = useDuotoneUrl(imageUrl2, natural2, duotoneEnabled, duotoneDark, duotoneLight);
 
   // Falls back to the plain photo while the duotone recolor is still being
   // computed (async, one extra frame or two) so toggling it on doesn't
@@ -466,7 +472,7 @@ export function PosterPreview({
   }
 
   function renderSticker(cutout: Cutout) {
-    const fillColor = cutout.color ?? topBgColor;
+    const fillColor = cutout.color ?? stickerColor;
     const commonProps = {
       "data-cutout-id": cutout.id,
       onPointerDown: (e: ReactPointerEvent<HTMLDivElement>) => handlePointerDown(e, cutout),
@@ -544,8 +550,8 @@ export function PosterPreview({
   const bandInset = `${((1 - OVERLAY_BAND_FRACTION) / 2) * 100}%`;
   const overlayTextStyle: React.CSSProperties = isOverlay
     ? layout === "overlay-h"
-      ? { position: "absolute", left: 0, right: 0, top: bandInset, height: `${OVERLAY_BAND_FRACTION * 100}%`, backgroundColor: topBgColor }
-      : { position: "absolute", top: 0, bottom: 0, left: bandInset, width: `${OVERLAY_BAND_FRACTION * 100}%`, backgroundColor: topBgColor }
+      ? { position: "absolute", left: 0, right: 0, top: bandInset, height: `${OVERLAY_BAND_FRACTION * 100}%`, backgroundColor: captionBgColor }
+      : { position: "absolute", top: 0, bottom: 0, left: bandInset, width: `${OVERLAY_BAND_FRACTION * 100}%`, backgroundColor: captionBgColor }
     : isRow
       ? { width: `${TOP_ZONE_FRACTION * 100}%` }
       : { height: `${TOP_ZONE_FRACTION * 100}%` };
@@ -681,7 +687,7 @@ export function PosterPreview({
 
   if (fullBleed) {
     return (
-      <div ref={canvasRef} className="relative flex h-full w-full overflow-hidden" style={{ backgroundColor: topBgColor }}>
+      <div ref={canvasRef} className="relative flex h-full w-full overflow-hidden" style={{ backgroundColor: captionBgColor }}>
         {photoZone}
         {grainOverlay}
       </div>
@@ -692,7 +698,7 @@ export function PosterPreview({
     <div
       ref={canvasRef}
       className={`relative flex h-full w-full overflow-hidden ${isRow ? "flex-row" : "flex-col"}`}
-      style={{ backgroundColor: topBgColor }}
+      style={{ backgroundColor: captionBgColor }}
     >
       {textFirst ? [textZone, photoZone] : [photoZone, textZone]}
       {grainOverlay}

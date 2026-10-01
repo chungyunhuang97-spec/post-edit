@@ -214,8 +214,10 @@ export interface RenderPosterParams {
   shape: ShapeOption;
   stickerStyleId: StickerStyleId;
   bracket: BracketOption;
-  topBgColor: string;
+  captionBgColor: string;
   textColor: string;
+  /** Default fill for any cutout without its own color override. */
+  stickerColor: string;
   baseFontSizePx: number;
   lineHeightMultiplier: number;
   letterSpacingPx: number;
@@ -237,9 +239,11 @@ export interface RenderPosterParams {
   zoom: number;
   /** Which of the 6 concrete text/photo zone arrangements to render. */
   layout: PosterLayoutId;
-  /** Recolors the photo into topBgColor (shadows) / textColor (highlights)
-   * instead of its own colors. */
+  /** Recolors the photo into duotoneDark (shadows) / duotoneLight
+   * (highlights) instead of its own colors. */
   duotoneEnabled: boolean;
+  duotoneDark: string;
+  duotoneLight: string;
   /** Paints a random noise layer over the entire finished poster, last. */
   grainEnabled: boolean;
   /** 0-100. */
@@ -272,8 +276,9 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
     shape,
     stickerStyleId,
     bracket,
-    topBgColor,
+    captionBgColor,
     textColor,
+    stickerColor,
     baseFontSizePx,
     lineHeightMultiplier,
     letterSpacingPx,
@@ -284,6 +289,8 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
     zoom,
     layout,
     duotoneEnabled,
+    duotoneDark,
+    duotoneLight,
     grainEnabled,
     grainIntensity,
     subjectHalftoneEnabled,
@@ -318,7 +325,7 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas 2D context unavailable");
 
-  ctx.fillStyle = topBgColor;
+  ctx.fillStyle = captionBgColor;
   ctx.fillRect(0, 0, width, height);
 
   const isDuo = collageLayoutId !== "single";
@@ -331,18 +338,18 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   // know whether it's drawing the original photo or this recolored one,
   // aside from reading width/height off the right object.
   const photoSource: CanvasImageSource = duotoneEnabled
-    ? applyDuotone(img, img.naturalWidth, img.naturalHeight, topBgColor, textColor, DUOTONE_EXPORT_MAX_DIMENSION)
+    ? applyDuotone(img, img.naturalWidth, img.naturalHeight, duotoneDark, duotoneLight, DUOTONE_EXPORT_MAX_DIMENSION)
     : img;
   const srcW = duotoneEnabled ? (photoSource as HTMLCanvasElement).width : img.naturalWidth;
   const srcH = duotoneEnabled ? (photoSource as HTMLCanvasElement).height : img.naturalHeight;
 
   // Second photo, only loaded in a duo collage that actually has one --
   // its absence (slot not filled in yet) just leaves that pane showing the
-  // canvas's base topBgColor fill underneath.
+  // canvas's base captionBgColor fill underneath.
   const img2 = isDuo && imageUrl2 ? await loadImage(imageUrl2) : null;
   const photoSource2: CanvasImageSource | null = img2
     ? duotoneEnabled
-      ? applyDuotone(img2, img2.naturalWidth, img2.naturalHeight, topBgColor, textColor, DUOTONE_EXPORT_MAX_DIMENSION)
+      ? applyDuotone(img2, img2.naturalWidth, img2.naturalHeight, duotoneDark, duotoneLight, DUOTONE_EXPORT_MAX_DIMENSION)
       : img2
     : null;
   const srcW2 = photoSource2 ? (duotoneEnabled ? (photoSource2 as HTMLCanvasElement).width : img2!.naturalWidth) : 0;
@@ -475,7 +482,7 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
         ctx.fillStyle = "#ffffff";
         ctx.fillRect(frameX, frameY, frameW, frameH);
         ctx.shadowColor = "transparent";
-        ctx.fillStyle = cutout.color ?? topBgColor;
+        ctx.fillStyle = cutout.color ?? stickerColor;
         ctx.fill(canvasShapePath(shape.id, x, y, squarePx));
         ctx.restore();
       });
@@ -498,9 +505,9 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
         const x = photoZone.x + (cutout.xPct / 100) * photoZone.w;
         const y = photoZone.y + (cutout.yPct / 100) * photoZone.h;
         if (stickerStyleId === "halftone") {
-          fillHalftoneDots(ctx, canvasShapePath(shape.id, x, y, squarePx), x, y, squarePx, cutout.color ?? topBgColor);
+          fillHalftoneDots(ctx, canvasShapePath(shape.id, x, y, squarePx), x, y, squarePx, cutout.color ?? stickerColor);
         } else {
-          ctx.fillStyle = cutout.color ?? topBgColor;
+          ctx.fillStyle = cutout.color ?? stickerColor;
           ctx.fill(canvasShapePath(shape.id, x, y, squarePx));
         }
       });
@@ -511,7 +518,7 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
   // band (the initial full-canvas fill is now covered by the photo drawn
   // above), so paint an opaque band there before the text sits on top.
   if (isOverlay && captionEnabled) {
-    ctx.fillStyle = topBgColor;
+    ctx.fillStyle = captionBgColor;
     ctx.fillRect(textZone.x, textZone.y, textZone.w, textZone.h);
   }
 
@@ -588,7 +595,7 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
           // paints onto the photo zone itself (see the fillStyle loop
           // above).
           const prevFill = ctx.fillStyle;
-          ctx.fillStyle = cutout.color ?? topBgColor;
+          ctx.fillStyle = cutout.color ?? stickerColor;
           ctx.fill(path);
           ctx.fillStyle = prevFill;
         }

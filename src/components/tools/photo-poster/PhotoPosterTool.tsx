@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BRACKET_OPTIONS, FONT_OPTIONS, SHAPE_OPTIONS, generateSocialCaption } from "./constants";
 import { CanvasSizeStep } from "./CanvasSizeStep";
-import { ControlPanel } from "./ControlPanel";
+import { ToolPanel, ToolRail, type TabId } from "./ControlPanel";
 import { renderPosterToCanvas } from "./exportPoster";
 import { loadUploadedImage } from "./imageUpload";
 import { analyzePhotoMood } from "./photoMood";
@@ -24,6 +24,8 @@ import { randomizeCutouts, resetCutoutColors, resizeCutouts, setCutoutColor, wor
 
 const DEFAULT_CUTOUT_COUNT = 6;
 const INITIAL_CAPTION = generateSocialCaption("neutral");
+const DEFAULT_CAPTION_BG = "#15111f";
+const DEFAULT_TEXT_COLOR = "#f5f3ff";
 
 export function PhotoPosterTool() {
   const [preset, setPreset] = useState<CanvasPreset | null>(null);
@@ -54,8 +56,18 @@ export function PhotoPosterTool() {
   const [letterSpacingPx, setLetterSpacingPx] = useState(0);
   const [fontOptionId, setFontOptionId] = useState<FontOptionId>("sans");
   const [bracketId, setBracketId] = useState<BracketStyleId>("round-small");
-  const [topBgColor, setTopBgColor] = useState("#15111f");
-  const [textColor, setTextColor] = useState("#f5f3ff");
+  // Which tool's adjustment panel is open under the canvas (null = closed,
+  // canvas gets the full height).
+  const [activeTab, setActiveTab] = useState<TabId | null>(null);
+  // Independent colors, each named for what it actually paints, so none of
+  // them silently drives something unrelated when the layout changes (e.g.
+  // in a two-photo collage there's no "top zone", and the caption band
+  // color used to double as the default sticker color).
+  const [captionBgColor, setCaptionBgColor] = useState(DEFAULT_CAPTION_BG);
+  const [textColor, setTextColor] = useState(DEFAULT_TEXT_COLOR);
+  const [stickerColor, setStickerColor] = useState(DEFAULT_CAPTION_BG);
+  const [duotoneDark, setDuotoneDark] = useState(DEFAULT_CAPTION_BG);
+  const [duotoneLight, setDuotoneLight] = useState(DEFAULT_TEXT_COLOR);
   const [pan, setPan] = useState({ x: 0.5, y: 0.5 });
   const [zoom, setZoom] = useState(1);
   const [exporting, setExporting] = useState(false);
@@ -159,18 +171,26 @@ export function PhotoPosterTool() {
       const item = Array.from(e.clipboardData?.items ?? []).find((i) => i.type.startsWith("image/"));
       const file = item?.getAsFile();
       if (!file) return;
+      // In a two-photo layout, pasting fills the second slot once the
+      // first is taken, rather than always replacing photo 1.
+      const intoSecond = collageLayoutId !== "single" && !!imageUrl && !imageUrl2;
       loadUploadedImage(file).then((result) => {
         if ("error" in result) {
-          setUploadError(result.error);
+          (intoSecond ? setUploadError2 : setUploadError)(result.error);
           return;
         }
-        setUploadError(null);
-        handleImageChange(result.url);
+        if (intoSecond) {
+          setUploadError2(null);
+          setImageUrl2(result.url);
+        } else {
+          setUploadError(null);
+          handleImageChange(result.url);
+        }
       });
     }
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
-  }, [handleImageChange]);
+  }, [handleImageChange, collageLayoutId, imageUrl, imageUrl2]);
 
   // Runs subject segmentation (a client-side ML model, see
   // subjectSegmentation.ts) only when the "主體網點" toggle is actually on
@@ -252,9 +272,14 @@ export function PhotoPosterTool() {
       setShapeId(preset.shapeId);
       setBracketId(preset.bracketId);
       setFontOptionId(preset.fontOptionId);
-      setLayout(preset.layout);
-      setTopBgColor(preset.topBgColor);
+      // Two-photo layouts only support the overlay arrangements, so a
+      // preset's split layout would leave no option selected.
+      setLayout((prev) => (collageLayoutId === "single" || preset.layout.startsWith("overlay") ? preset.layout : prev));
+      setCaptionBgColor(preset.captionBgColor);
       setTextColor(preset.textColor);
+      setStickerColor(preset.captionBgColor);
+      setDuotoneDark(preset.captionBgColor);
+      setDuotoneLight(preset.textColor);
       setScaleMultiplier(preset.scaleMultiplier);
       setBaseFontSizePx(preset.baseFontSizePx);
       setLineHeightMultiplier(preset.lineHeightMultiplier);
@@ -266,7 +291,7 @@ export function PhotoPosterTool() {
       const fresh = randomizeCutouts(preset.cutoutCount, wordCountOf(caption));
       setCutouts(fresh.map((c, i) => ({ ...c, color: preset.palette ? preset.palette[i % preset.palette.length] : null })));
     },
-    [caption],
+    [caption, collageLayoutId],
   );
 
   // Suggests a new caption in a casual, social-caption tone -- when a
@@ -308,8 +333,9 @@ export function PhotoPosterTool() {
         shape,
         stickerStyleId,
         bracket,
-        topBgColor,
+        captionBgColor,
         textColor,
+        stickerColor,
         baseFontSizePx,
         lineHeightMultiplier,
         letterSpacingPx,
@@ -320,6 +346,8 @@ export function PhotoPosterTool() {
         zoom,
         layout,
         duotoneEnabled,
+        duotoneDark,
+        duotoneLight,
         grainEnabled,
         grainIntensity,
         subjectHalftoneEnabled,
@@ -349,8 +377,9 @@ export function PhotoPosterTool() {
     stickerStyleId,
     bracketId,
     fontOptionId,
-    topBgColor,
+    captionBgColor,
     textColor,
+    stickerColor,
     baseFontSizePx,
     lineHeightMultiplier,
     letterSpacingPx,
@@ -359,11 +388,21 @@ export function PhotoPosterTool() {
     zoom,
     layout,
     duotoneEnabled,
+    duotoneDark,
+    duotoneLight,
     grainEnabled,
     grainIntensity,
     subjectHalftoneEnabled,
     subjectMask,
   ]);
+
+  // Two-photo layouts need both slots filled; a missing one would export a
+  // blank half. Clicking export then opens 版型 (where the slots are).
+  const missingPhotos = !imageUrl || (collageLayoutId !== "single" && !imageUrl2);
+  const handleExportClick = () => {
+    if (missingPhotos) setActiveTab("layout");
+    else void handleExport();
+  };
 
   if (!preset) {
     return <CanvasSizeStep onSelect={setPreset} />;
@@ -394,7 +433,7 @@ export function PhotoPosterTool() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0">
       <input
         ref={fileInputRef}
         type="file"
@@ -410,6 +449,17 @@ export function PhotoPosterTool() {
         onChange={(e) => void handleFileList2(e.target.files)}
       />
 
+      <ToolRail
+        activeTab={activeTab}
+        onSelect={setActiveTab}
+        sizeLabel={`${preset.label} ${preset.width} × ${preset.height}`}
+        onChangeSize={() => setPreset(null)}
+        onExport={handleExportClick}
+        exporting={exporting}
+        missingPhotos={missingPhotos}
+      />
+
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div ref={previewWrapCallbackRef} className="flex min-h-0 flex-1 items-center justify-center overflow-hidden p-3">
         <div
           style={frameStyle}
@@ -437,13 +487,16 @@ export function PhotoPosterTool() {
             bracket={bracket}
             shape={shape}
             stickerStyleId={stickerStyleId}
-            topBgColor={topBgColor}
+            captionBgColor={captionBgColor}
             textColor={textColor}
+            stickerColor={stickerColor}
             pan={pan}
             onPanChange={setPan}
             zoom={zoom}
             layout={layout}
             duotoneEnabled={duotoneEnabled}
+            duotoneDark={duotoneDark}
+            duotoneLight={duotoneLight}
             grainEnabled={grainEnabled}
             grainIntensity={grainIntensity}
             subjectHalftoneEnabled={subjectHalftoneEnabled}
@@ -454,68 +507,75 @@ export function PhotoPosterTool() {
         </div>
       </div>
 
-      <div className="flex min-h-0 shrink-0 flex-col border-t border-line bg-surface" style={{ maxHeight: "52dvh" }}>
-        <ControlPanel
-          preset={preset}
-          onChangeSize={() => setPreset(null)}
-          onApplyStylePreset={handleApplyStylePreset}
-          imageUrl={imageUrl}
-          uploadError={uploadError}
-          onRequestUpload={handleRequestUpload}
-          imageUrl2={imageUrl2}
-          uploadError2={uploadError2}
-          onRequestUpload2={handleRequestUpload2}
-          zoom={zoom}
-          onZoomChange={setZoom}
-          duotoneEnabled={duotoneEnabled}
-          onDuotoneEnabledChange={setDuotoneEnabled}
-          grainEnabled={grainEnabled}
-          onGrainEnabledChange={setGrainEnabled}
-          grainIntensity={grainIntensity}
-          onGrainIntensityChange={setGrainIntensity}
-          caption={caption}
-          onCaptionChange={setCaption}
-          onRegenerateCaption={handleRegenerateCaption}
-          suggestingCaption={suggestingCaption}
-          cutouts={cutouts}
-          onCutoutCountChange={handleCutoutCountChange}
-          onCutoutColorChange={handleCutoutColorChange}
-          onResetCutoutColors={handleResetCutoutColors}
-          shapeId={shapeId}
-          onShapeChange={setShapeId}
-          stickerStyleId={stickerStyleId}
-          onStickerStyleChange={setStickerStyleId}
-          scaleMultiplier={scaleMultiplier}
-          onScaleChange={setScaleMultiplier}
-          baseFontSizePx={baseFontSizePx}
-          onFontSizeChange={setBaseFontSizePx}
-          lineHeightMultiplier={lineHeightMultiplier}
-          onLineHeightChange={setLineHeightMultiplier}
-          letterSpacingPx={letterSpacingPx}
-          onLetterSpacingChange={setLetterSpacingPx}
-          locked={locked}
-          onToggleLocked={() => setLocked((v) => !v)}
-          onRandomize={handleRandomize}
-          fontOptionId={fontOptionId}
-          onFontOptionChange={setFontOptionId}
-          bracketId={bracketId}
-          onBracketChange={setBracketId}
-          topBgColor={topBgColor}
-          onTopBgColorChange={setTopBgColor}
-          textColor={textColor}
-          onTextColorChange={setTextColor}
-          layout={layout}
-          onLayoutChange={setLayout}
-          collageLayoutId={collageLayoutId}
-          onCollageLayoutChange={handleCollageLayoutChange}
-          captionEnabled={captionEnabled}
-          onCaptionEnabledChange={setCaptionEnabled}
-          subjectHalftoneEnabled={subjectHalftoneEnabled}
-          onSubjectHalftoneEnabledChange={setSubjectHalftoneEnabled}
-          subjectHalftoneStatus={subjectHalftoneStatus}
-          onExport={handleExport}
-          exporting={exporting}
-        />
+      {activeTab && (
+        <div className="min-h-0 shrink-0 border-t border-line bg-surface" style={{ height: "max(36dvh, 220px)", maxHeight: "50dvh" }}>
+          <ToolPanel
+            activeTab={activeTab}
+            onClose={() => setActiveTab(null)}
+            onApplyStylePreset={handleApplyStylePreset}
+            imageUrl={imageUrl}
+            uploadError={uploadError}
+            onRequestUpload={handleRequestUpload}
+            imageUrl2={imageUrl2}
+            uploadError2={uploadError2}
+            onRequestUpload2={handleRequestUpload2}
+            zoom={zoom}
+            onZoomChange={setZoom}
+            duotoneEnabled={duotoneEnabled}
+            onDuotoneEnabledChange={setDuotoneEnabled}
+            duotoneDark={duotoneDark}
+            onDuotoneDarkChange={setDuotoneDark}
+            duotoneLight={duotoneLight}
+            onDuotoneLightChange={setDuotoneLight}
+            grainEnabled={grainEnabled}
+            onGrainEnabledChange={setGrainEnabled}
+            grainIntensity={grainIntensity}
+            onGrainIntensityChange={setGrainIntensity}
+            caption={caption}
+            onCaptionChange={setCaption}
+            onRegenerateCaption={handleRegenerateCaption}
+            suggestingCaption={suggestingCaption}
+            cutouts={cutouts}
+            onCutoutCountChange={handleCutoutCountChange}
+            onCutoutColorChange={handleCutoutColorChange}
+            onResetCutoutColors={handleResetCutoutColors}
+            stickerColor={stickerColor}
+            onStickerColorChange={setStickerColor}
+            shapeId={shapeId}
+            onShapeChange={setShapeId}
+            stickerStyleId={stickerStyleId}
+            onStickerStyleChange={setStickerStyleId}
+            scaleMultiplier={scaleMultiplier}
+            onScaleChange={setScaleMultiplier}
+            baseFontSizePx={baseFontSizePx}
+            onFontSizeChange={setBaseFontSizePx}
+            lineHeightMultiplier={lineHeightMultiplier}
+            onLineHeightChange={setLineHeightMultiplier}
+            letterSpacingPx={letterSpacingPx}
+            onLetterSpacingChange={setLetterSpacingPx}
+            locked={locked}
+            onToggleLocked={() => setLocked((v) => !v)}
+            onRandomize={handleRandomize}
+            fontOptionId={fontOptionId}
+            onFontOptionChange={setFontOptionId}
+            bracketId={bracketId}
+            onBracketChange={setBracketId}
+            captionBgColor={captionBgColor}
+            onCaptionBgColorChange={setCaptionBgColor}
+            textColor={textColor}
+            onTextColorChange={setTextColor}
+            layout={layout}
+            onLayoutChange={setLayout}
+            collageLayoutId={collageLayoutId}
+            onCollageLayoutChange={handleCollageLayoutChange}
+            captionEnabled={captionEnabled}
+            onCaptionEnabledChange={setCaptionEnabled}
+            subjectHalftoneEnabled={subjectHalftoneEnabled}
+            onSubjectHalftoneEnabledChange={setSubjectHalftoneEnabled}
+            subjectHalftoneStatus={subjectHalftoneStatus}
+          />
+        </div>
+      )}
       </div>
     </div>
   );

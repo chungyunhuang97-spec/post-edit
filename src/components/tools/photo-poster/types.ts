@@ -137,7 +137,7 @@ export interface StylePreset {
   bracketId: BracketStyleId;
   fontOptionId: FontOptionId;
   layout: PosterLayoutId;
-  topBgColor: string;
+  captionBgColor: string;
   textColor: string;
   scaleMultiplier: number;
   baseFontSizePx: number;
@@ -153,6 +153,7 @@ export interface StylePreset {
    * triggers a one-time ML model download the first time it's turned on. */
   subjectHalftoneEnabled?: boolean;
   /** Cycling per-cutout color override (candy-sticker look). Omitted means
-   * every cutout inherits topBgColor, as plain shapes cut from one sheet. */
+   * every cutout inherits the preset's captionBgColor as the shared sticker
+   * color, as plain shapes cut from one sheet. */
   palette?: string[];
 }

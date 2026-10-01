@@ -53,8 +53,8 @@ export const FONT_OPTIONS: FontOption[] = [
 
 export const COLLAGE_OPTIONS: CollageOption[] = [
   { id: "single", label: "單張照片" },
-  { id: "duo-h", label: "左右拼貼" },
-  { id: "duo-v", label: "上下拼貼" },
+  { id: "duo-h", label: "雙張照片・左右並排" },
+  { id: "duo-v", label: "雙張照片・上下並排" },
 ];
 
 export const STICKER_STYLE_OPTIONS: StickerStyleOption[] = [
@@ -111,7 +111,7 @@ export const SHAPE_OPTIONS: ShapeOption[] = (Object.keys(SHAPE_LABELS) as ShapeI
 // the tool's own original default) -- each bundles every tab's worth of
 // settings into one click so switching styles actually looks like a
 // different poster, not just a different color. Applying one is a full
-// reroll (like the existing 隨機圖形 button), not a locked mode: every value
+// reroll (like the existing 重新隨機排列 button), not a locked mode: every value
 // it sets can still be nudged afterwards in its own tab.
 export const STYLE_PRESETS: StylePreset[] = [
   {
@@ -122,7 +122,7 @@ export const STYLE_PRESETS: StylePreset[] = [
     bracketId: "round-small",
     fontOptionId: "sans",
     layout: "text-top",
-    topBgColor: "#15111f",
+    captionBgColor: "#15111f",
     textColor: "#f5f3ff",
     scaleMultiplier: 0.5,
     baseFontSizePx: 16,
@@ -141,7 +141,7 @@ export const STYLE_PRESETS: StylePreset[] = [
     bracketId: "round-small",
     fontOptionId: "handwriting",
     layout: "photo-top",
-    topBgColor: "#f3e9da",
+    captionBgColor: "#f3e9da",
     textColor: "#3d2f22",
     scaleMultiplier: 0.9,
     baseFontSizePx: 20,
@@ -160,7 +160,7 @@ export const STYLE_PRESETS: StylePreset[] = [
     bracketId: "square",
     fontOptionId: "script",
     layout: "overlay-h",
-    topBgColor: "#ff5fa2",
+    captionBgColor: "#ff5fa2",
     textColor: "#fffbe8",
     scaleMultiplier: 1.3,
     baseFontSizePx: 18,
@@ -180,7 +180,7 @@ export const STYLE_PRESETS: StylePreset[] = [
     bracketId: "none",
     fontOptionId: "display-black",
     layout: "overlay-v",
-    topBgColor: "#120f10",
+    captionBgColor: "#120f10",
     textColor: "#f4fff0",
     scaleMultiplier: 0.7,
     baseFontSizePx: 22,
@@ -199,7 +199,7 @@ export const STYLE_PRESETS: StylePreset[] = [
     bracketId: "none",
     fontOptionId: "soft-serif",
     layout: "text-top",
-    topBgColor: "#efe7da",
+    captionBgColor: "#efe7da",
     textColor: "#54483a",
     scaleMultiplier: 0.8,
     baseFontSizePx: 16,
@@ -218,7 +218,7 @@ export const STYLE_PRESETS: StylePreset[] = [
     bracketId: "square",
     fontOptionId: "elegant-serif",
     layout: "split-left",
-    topBgColor: "#111111",
+    captionBgColor: "#111111",
     textColor: "#f5f2ea",
     scaleMultiplier: 1.0,
     baseFontSizePx: 18,
@@ -237,7 +237,7 @@ export const STYLE_PRESETS: StylePreset[] = [
     bracketId: "square",
     fontOptionId: "condensed",
     layout: "split-right",
-    topBgColor: "#ff5a1f",
+    captionBgColor: "#ff5a1f",
     textColor: "#151005",
     scaleMultiplier: 1.1,
     baseFontSizePx: 24,
@@ -260,7 +260,7 @@ export const STYLE_PRESETS: StylePreset[] = [
     bracketId: "none",
     fontOptionId: "geometric",
     layout: "overlay-h",
-    topBgColor: "#ff2f7e",
+    captionBgColor: "#ff2f7e",
     textColor: "#0d2b1f",
     scaleMultiplier: 1.1,
     baseFontSizePx: 20,
