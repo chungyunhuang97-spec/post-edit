@@ -64,3 +64,39 @@
 input[type="range"] {
   accent-color: var(--color-accent);
 }
+
+
+/* Tool panel motion: the panel's content fades up when a tool is picked,
+   and on phones the whole sheet slides up from the bottom. */
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes sheet-up {
+  from {
+    opacity: 0;
+    transform: translateY(32px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.animate-panel-in {
+  animation: panel-in 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.animate-sheet-up {
+  animation: sheet-up 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-panel-in,
+  .animate-sheet-up {
+    animation: none;
+  }
+}

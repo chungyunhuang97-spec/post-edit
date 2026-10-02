@@ -297,6 +297,9 @@ export interface DecorState {
   dotArtThreshold: number;
   dotArtInvert: boolean;
   dotArtArea: "all" | "subject" | "background";
+  /** The dots show the photo shifted by this much (% of the poster width), like a misprint. */
+  dotArtOffsetX: number;
+  dotArtOffsetY: number;
   /** Scattered words are turned 90 degrees, dot first. */
   scatterVertical: boolean;
   /** Overlay layouts only: the text band has no fill, so text sits straight on the photo. */
@@ -333,6 +336,8 @@ export const DEFAULT_DECOR: DecorState = {
   dotArtThreshold: 0.3,
   dotArtInvert: false,
   dotArtArea: "all",
+  dotArtOffsetX: 0,
+  dotArtOffsetY: 0,
   scatterVertical: false,
   captionBgTransparent: false,
   subjectPaste: false,

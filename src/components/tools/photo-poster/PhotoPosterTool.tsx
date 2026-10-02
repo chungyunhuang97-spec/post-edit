@@ -123,6 +123,13 @@ export function PhotoPosterTool() {
   // Which tool's adjustment panel is open under the canvas (null = closed,
   // canvas gets the full height).
   const [activeTab, setActiveTab] = useState<TabId | null>(null);
+  // The tab whose panel is on screen -- kept while the panel slides shut, so
+  // its content doesn't vanish mid-animation.
+  const [shownTab, setShownTab] = useState<TabId | null>(null);
+  const selectTab = useCallback((tab: TabId | null) => {
+    setActiveTab(tab);
+    if (tab) setShownTab(tab);
+  }, []);
   const [sheetHeight, setSheetHeight] = useState(() => (typeof window === "undefined" ? SHEET_DEFAULT : readStoredSheetHeight()));
   const sheetDrag = useRef<{ startY: number; startH: number } | null>(null);
   // Independent colors, each named for what it actually paints, so none of
@@ -663,7 +670,7 @@ export function PhotoPosterTool() {
   // blank half. Clicking export then opens 版型 (where the slots are).
   const missingPhotos = imageUrls.slice(0, paneCount).some((u) => !u);
   const handleExportClick = () => {
-    if (missingPhotos) setActiveTab("layout");
+    if (missingPhotos) selectTab("layout");
     else void handleExport();
   };
 
@@ -715,7 +722,7 @@ export function PhotoPosterTool() {
       <ToolRail
         visibleTabs={visibleTabs}
         activeTab={activeTab}
-        onSelect={setActiveTab}
+        onSelect={selectTab}
         sizeLabel={`${preset.label} ${preset.width} × ${preset.height}`}
         onChangeSize={() => setPreset(null)}
         onExport={handleExportClick}
@@ -775,11 +782,17 @@ export function PhotoPosterTool() {
 
       </div>
 
-      {activeTab && (
+      {shownTab && (
         <div
-          className="order-2 flex h-[var(--sheet-h)] min-h-0 shrink-0 flex-col border-t border-line bg-surface md:order-1 md:h-auto md:w-1/3 md:min-w-[300px] md:max-w-[440px] md:border-r md:border-t-0"
+          aria-hidden={!activeTab}
+          className={`order-2 min-h-0 shrink-0 flex-col border-line bg-surface md:order-1 md:flex md:h-auto md:overflow-hidden md:transition-[width,visibility] md:duration-300 md:ease-out ${
+            activeTab
+              ? "animate-sheet-up flex h-[var(--sheet-h)] border-t md:animate-none md:visible md:w-[clamp(300px,33.333vw,440px)] md:border-r md:border-t-0"
+              : "hidden md:invisible md:w-0 md:border-r-0"
+          }`}
           style={{ "--sheet-h": `${sheetHeight}dvh` } as React.CSSProperties}
         >
+         <div className="flex h-full min-h-0 w-full flex-col md:w-[clamp(300px,33.333vw,440px)] md:shrink-0">
           <div
             role="separator"
             aria-orientation="horizontal"
@@ -793,10 +806,10 @@ export function PhotoPosterTool() {
           >
             <span className="h-1 w-10 rounded-full bg-line" />
           </div>
-          <div className="min-h-0 flex-1">
+          <div key={shownTab} className="animate-panel-in min-h-0 flex-1">
           <ToolPanel
-            activeTab={activeTab}
-            onClose={() => setActiveTab(null)}
+            activeTab={shownTab ?? activeTab}
+            onClose={() => selectTab(null)}
             onApplyStylePreset={handleApplyStylePreset}
             onExport={handleExportClick}
             exporting={exporting}
@@ -877,6 +890,7 @@ export function PhotoPosterTool() {
             maskStatus={maskStatus}
           />
           </div>
+         </div>
         </div>
       )}
     </div>

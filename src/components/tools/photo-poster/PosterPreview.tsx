@@ -198,7 +198,7 @@ function DotArtCanvas({
 }: {
   img: HTMLImageElement;
   mask: SubjectMask | null;
-  opts: { cellPx: number; threshold: number; invert: boolean; area: "all" | "subject" | "background"; color: string };
+  opts: { cellPx: number; threshold: number; invert: boolean; area: "all" | "subject" | "background"; color: string; offsetX: number; offsetY: number };
   width: number;
   height: number;
   geom: CropGeom;
@@ -207,7 +207,7 @@ function DotArtCanvas({
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const { offsetX, offsetY, renderedW, renderedH } = geom;
-  const { cellPx, threshold, invert, area, color } = opts;
+  const { cellPx, threshold, invert, area, color, offsetX: shiftX, offsetY: shiftY } = opts;
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas || width <= 0 || height <= 0) return;
@@ -223,9 +223,9 @@ function DotArtCanvas({
       mask,
       { x: 0, y: 0, w: canvas.width, h: canvas.height },
       { offsetX: offsetX * dpr, offsetY: offsetY * dpr, renderedW: renderedW * dpr, renderedH: renderedH * dpr },
-      { cellPx: cellPx * dpr, threshold, invert, area, color },
+      { cellPx: cellPx * dpr, threshold, invert, area, color, offsetX: shiftX * dpr, offsetY: shiftY * dpr },
     );
-  }, [img, mask, cellPx, threshold, invert, area, color, width, height, offsetX, offsetY, renderedW, renderedH]);
+  }, [img, mask, cellPx, threshold, invert, area, color, shiftX, shiftY, width, height, offsetX, offsetY, renderedW, renderedH]);
   return <canvas ref={ref} className="pointer-events-none absolute" style={{ width, height, left, top }} />;
 }
 
@@ -766,6 +766,8 @@ export function PosterPreview({
                 invert: decor.dotArtInvert,
                 area: decor.dotArtArea,
                 color: decor.dotArtColor,
+                offsetX: (decor.dotArtOffsetX / 100) * contentSize.w,
+                offsetY: (decor.dotArtOffsetY / 100) * contentSize.w,
               }}
               width={paneBoxes[slot].w}
               height={paneBoxes[slot].h}

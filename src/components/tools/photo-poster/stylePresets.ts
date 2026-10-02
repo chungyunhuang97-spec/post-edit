@@ -64,7 +64,7 @@ export const STYLE_PRESETS: StylePreset[] = [
     shapesEnabled: false,
     captionEnabled: false,
     decor: { dotArtEnabled: true, dotArtColor: "#ffffff", dotArtCellPct: 1.3, dotArtThreshold: 0.26, dotArtArea: "background" },
-    features: { ...NO_FEATURES, captionBlock: true, captionPosition: true, captionSize: true, dotArt: true, frame: true },
+    features: { ...NO_FEATURES, captionBlock: true, captionPosition: true, captionSize: true, captionBg: true, dotArt: true, frame: true },
   },
   {
     id: "cutout-block",

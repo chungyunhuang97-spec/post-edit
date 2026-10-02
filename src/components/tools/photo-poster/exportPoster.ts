@@ -364,6 +364,8 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
           invert: decor.dotArtInvert,
           area: decor.dotArtArea,
           color: decor.dotArtColor,
+          offsetX: (decor.dotArtOffsetX / 100) * content.w,
+          offsetY: (decor.dotArtOffsetY / 100) * content.w,
         });
       });
     }

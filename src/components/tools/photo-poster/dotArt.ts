@@ -11,6 +11,9 @@ export interface DotArtOptions {
   invert: boolean;
   area: DotArtArea;
   color: string;
+  /** The dots show the photo shifted by this much (px): the print is off-register. */
+  offsetX?: number;
+  offsetY?: number;
 }
 
 /** Turns the visible part of a cover-fit photo into a dot-matrix drawing
@@ -32,8 +35,8 @@ export function drawDotArt(
   const cw = pane.w / cols;
   const ch = pane.h / rows;
   // The part of the source photo that this pane shows.
-  const sx = (-geom.offsetX / geom.renderedW) * img.naturalWidth;
-  const sy = (-geom.offsetY / geom.renderedH) * img.naturalHeight;
+  const sx = ((-geom.offsetX - (opts.offsetX ?? 0)) / geom.renderedW) * img.naturalWidth;
+  const sy = ((-geom.offsetY - (opts.offsetY ?? 0)) / geom.renderedH) * img.naturalHeight;
   const sw = (pane.w / geom.renderedW) * img.naturalWidth;
   const sh = (pane.h / geom.renderedH) * img.naturalHeight;
   const tmp = document.createElement("canvas");

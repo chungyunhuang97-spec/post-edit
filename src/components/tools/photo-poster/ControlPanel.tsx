@@ -123,7 +123,7 @@ export function ToolRail({ visibleTabs, activeTab, onSelect, sizeLabel, onChange
               title={tool.title}
               aria-pressed={active}
               onClick={() => onSelect(active ? null : tool.id)}
-              className={`flex h-[52px] w-11 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl text-[10px] font-medium transition ${
+              className={`flex h-[52px] w-11 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl text-[10px] font-medium transition active:scale-95 ${
                 active ? "accent-fill" : "text-ink-muted hover:bg-surface-2 hover:text-ink"
               }`}
             >
@@ -140,7 +140,7 @@ export function ToolRail({ visibleTabs, activeTab, onSelect, sizeLabel, onChange
           aria-pressed={locked}
           onClick={onToggleLocked}
           title={locked ? "已鎖定：點一下解除" : "鎖定畫面上的東西，避免不小心拖動"}
-          className={`flex h-[44px] w-11 flex-col items-center justify-center gap-0.5 rounded-xl text-[10px] font-medium transition ${
+          className={`flex h-[44px] w-11 flex-col items-center justify-center gap-0.5 rounded-xl text-[10px] font-medium transition active:scale-95 ${
             locked ? "bg-accent-soft text-accent" : "text-ink-muted hover:bg-surface-2 hover:text-ink"
           }`}
         >
@@ -1019,6 +1019,23 @@ export function ToolPanel(props: ToolPanelProps) {
                     className="h-4 w-4 shrink-0 accent-accent"
                   />
                 </label>
+                <label className="grid grid-cols-[5.5rem_1fr_3rem] items-center gap-2 text-xs text-ink-muted"><span>水平偏移</span><input
+                    type="range"
+                    min={-12}
+                    max={12}
+                    step={0.5}
+                    value={decor.dotArtOffsetX}
+                    onChange={(e) => onDecorChange({ dotArtOffsetX: Number(e.target.value) })}
+                  /><span className="text-right tabular-nums">{decor.dotArtOffsetX}</span></label>
+                <label className="grid grid-cols-[5.5rem_1fr_3rem] items-center gap-2 text-xs text-ink-muted"><span>垂直偏移</span><input
+                    type="range"
+                    min={-12}
+                    max={12}
+                    step={0.5}
+                    value={decor.dotArtOffsetY}
+                    onChange={(e) => onDecorChange({ dotArtOffsetY: Number(e.target.value) })}
+                  /><span className="text-right tabular-nums">{decor.dotArtOffsetY}</span></label>
+                <Desc>偏移 = 點陣和照片錯位，像套印沒對準的重影</Desc>
                 <ColorField label="點的顏色" value={decor.dotArtColor} onChange={(hex) => onDecorChange({ dotArtColor: hex })} />
               </>
             )}
