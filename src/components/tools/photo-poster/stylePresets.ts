@@ -111,7 +111,7 @@ export const STYLE_PRESETS: StylePreset[] = [
     // past its edge so some of them overlap the photo, as in a journal page.
     tiles: { count: 4, region: { x0: 8, y0: 15, x1: 94, y1: 90 } },
     dots: { count: 5, region: { x0: -28, y0: 3, x1: 96, y1: 97 }, palette: JOURNAL_DOTS },
-    features: { ...NO_FEATURES, captionSize: true, captionBg: true, tiles: true, dots: true },
+    features: { ...NO_FEATURES, captionPosition: true, captionSize: true, captionBg: true, tiles: true, dots: true },
   },
   {
     id: "airy-words",

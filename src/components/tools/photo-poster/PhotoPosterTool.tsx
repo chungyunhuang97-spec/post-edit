@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BRACKET_OPTIONS, FONT_OPTIONS, SHAPE_BASE_PX, SHAPE_OPTIONS, generateSocialCaption } from "./constants";
 import { MAX_PHOTOS, photoCountOf } from "./collage";
+import { recommendContrastColors } from "./colorUtils";
 import { assignTilePhotos, captionWords, makeDots, makeTiles, makeWordPositions } from "./decorLayout";
 import { CanvasSizeStep } from "./CanvasSizeStep";
 import { ToolPanel, ToolRail, type TabId } from "./ControlPanel";
@@ -453,6 +454,12 @@ export function PhotoPosterTool() {
      
     [],
   );
+  const handleRecommendDotColors = useCallback(() => {
+    setDots((prev) => {
+      const colors = recommendContrastColors(captionBgColor, prev.length);
+      return prev.map((d, i) => ({ ...d, color: colors[i] }));
+    });
+  }, [captionBgColor]);
   const handleDotColorChange = useCallback(
     (id: string, color: string) => setDots((prev) => prev.map((d) => (d.id === id ? { ...d, color } : d))),
     [],
@@ -835,6 +842,7 @@ export function PhotoPosterTool() {
             onDotsEnabledChange={handleDotsEnabledChange}
             onDotCountChange={handleDotCountChange}
             onShuffleDots={handleShuffleDots}
+            onRecommendDotColors={handleRecommendDotColors}
             onDotColorChange={handleDotColorChange}
             onShuffleWords={handleShuffleWords}
             imageUrls={imageUrls}

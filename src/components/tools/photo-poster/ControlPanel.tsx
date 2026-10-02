@@ -3,6 +3,8 @@
 import { useState, type ReactNode } from "react";
 import { defaultLayoutForCount, layoutsForCount, paneFracs, photoCountOf } from "./collage";
 import { BRACKET_OPTIONS, COLLAGE_OPTIONS, FONT_OPTIONS, LAYOUT_OPTIONS, SHAPE_OPTIONS, STICKER_STYLE_OPTIONS } from "./constants";
+import { ColorPicker } from "./ColorPicker";
+import { contrastRatio } from "./colorUtils";
 import { STYLE_PRESETS } from "./stylePresets";
 import { DEFAULT_DECOR } from "./types";
 import type {
@@ -211,16 +213,18 @@ function SectionTitle({ children }: { children: ReactNode }) {
 
 function ColorField({ label, hint, value, onChange }: { label: string; hint?: string; value: string; onChange: (hex: string) => void }) {
   return (
-    <label className="flex flex-col gap-1 text-xs text-ink-muted">
+    <div className="flex flex-col gap-1 text-xs text-ink-muted">
       {label}
-      <input
-        type="color"
+      <ColorPicker
         value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-8 w-full rounded-md border border-line bg-surface-2"
-      />
+        onChange={onChange}
+        className="flex h-8 w-full items-center justify-end rounded-md border border-line px-2 font-mono text-[11px] uppercase"
+        style={{ backgroundColor: value, color: contrastRatio(value, "#000000") > 6 ? "#000000" : "#ffffff" }}
+      >
+        {value}
+      </ColorPicker>
       {hint && <span className="text-[11px] text-ink-faint">{hint}</span>}
-    </label>
+    </div>
   );
 }
 
@@ -360,6 +364,7 @@ export interface ToolPanelProps {
   onDotsEnabledChange: (enabled: boolean) => void;
   onDotCountChange: (n: number) => void;
   onShuffleDots: () => void;
+  onRecommendDotColors: () => void;
   onDotColorChange: (id: string, color: string) => void;
   onShuffleWords: () => void;
   /** Controls the active style uses (everything when none / "show all"). */
@@ -463,6 +468,7 @@ export function ToolPanel(props: ToolPanelProps) {
     onDotsEnabledChange,
     onDotCountChange,
     onShuffleDots,
+    onRecommendDotColors,
     onDotColorChange,
     onShuffleWords,
     onExport,
@@ -846,19 +852,14 @@ export function ToolPanel(props: ToolPanelProps) {
               {!stickerLinked && (
               <div className="flex flex-wrap gap-2">
                 {cutouts.map((cutout, i) => (
-                  <label
+                  <ColorPicker
                     key={cutout.id}
-                    className="relative flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-line bg-surface-2 text-[10px] text-ink-faint"
+                    value={cutout.color ?? stickerColor}
+                    onChange={(hex) => onCutoutColorChange(cutout.id, hex)}
+                    className="h-8 w-8 cursor-pointer rounded-md border border-line"
                     style={{ backgroundColor: cutout.color ?? stickerColor, borderColor: cutout.color ?? undefined }}
                     title={`第 ${i + 1} 個圖形的顏色`}
-                  >
-                    <input
-                      type="color"
-                      value={cutout.color ?? stickerColor}
-                      onChange={(e) => onCutoutColorChange(cutout.id, e.target.value)}
-                      className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-                    />
-                  </label>
+                  />
                 ))}
               </div>
               )}
@@ -1069,21 +1070,23 @@ export function ToolPanel(props: ToolPanelProps) {
                   /><span className="text-right tabular-nums">{decor.dotSizePx}px</span></label>
                 <div className="flex flex-wrap gap-2">
                   {dots.map((dot, i) => (
-                    <label
+                    <ColorPicker
                       key={dot.id}
-                      className="relative h-8 w-8 cursor-pointer rounded-full border border-line"
+                      value={dot.color}
+                      onChange={(hex) => onDotColorChange(dot.id, hex)}
+                      className="h-8 w-8 cursor-pointer rounded-full border border-line"
                       style={{ backgroundColor: dot.color }}
                       title={`第 ${i + 1} 個圓點的顏色`}
-                    >
-                      <input
-                        type="color"
-                        value={dot.color}
-                        onChange={(e) => onDotColorChange(dot.id, e.target.value)}
-                        className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-                      />
-                    </label>
+                    />
                   ))}
                 </div>
+                <button
+                  type="button"
+                  onClick={onRecommendDotColors}
+                  className="rounded-md border border-line bg-surface-2 px-3 py-1.5 text-xs font-medium text-ink-muted hover:text-ink"
+                >
+                  依文案底色隨機推薦對比色
+                </button>
                 <button
                   type="button"
                   onClick={onShuffleDots}
