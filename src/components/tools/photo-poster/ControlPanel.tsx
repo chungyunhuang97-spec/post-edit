@@ -636,75 +636,6 @@ export function ToolPanel(props: ToolPanelProps) {
                 <Desc>{isDuo ? "每張照片各自縮放，也可以在畫布上各自拖曳調整位置" : "直接拖曳上方預覽的照片可調整顯示位置"}</Desc>
               )}
             </section>
-            {(
-            <section className="flex flex-col gap-3 border-t border-line pt-3">
-              <SectionTitle>文案區塊・位置與大小</SectionTitle>
-              <label className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-2 px-3 py-1.5 text-xs text-ink-muted md:py-2">
-                <span className="flex flex-col gap-0.5">
-                  <span className="font-medium text-ink">顯示文案區塊</span>
-                  <Desc>關閉後色塊和文字都不顯示，照片鋪滿整張畫布，只剩拼貼編輯</Desc>
-                </span>
-                <input
-                  type="checkbox"
-                  checked={captionEnabled}
-                  onChange={(e) => onCaptionEnabledChange(e.target.checked)}
-                  className="h-4 w-4 shrink-0 accent-accent"
-                />
-              </label>
-              {!captionEnabled ? (
-                <p className="text-[11px] text-ink-faint">目前沒有顯示文案區塊，照片鋪滿整張畫布，可以當成純拼貼來編輯。</p>
-              ) : (
-                <div className="grid grid-cols-2 gap-2">
-                  {LAYOUT_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => onLayoutChange(opt.id)}
-                      className={`flex items-center gap-2 rounded-md border px-3 py-2 text-left text-xs font-medium transition ${
-                        layout === opt.id ? "border-accent bg-accent-soft text-accent" : "border-line bg-surface-2 text-ink-muted"
-                      }`}
-                    >
-                      <LayoutIcon id={opt.id} />
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-              {captionEnabled && (
-                <div className="flex flex-col gap-2">
-                  <span className="flex justify-between text-xs text-ink-muted">
-                    <span>文案區塊大小</span>
-                    <span>{Math.round(captionFractionValue * 100)}%</span>
-                  </span>
-                  <div className="grid grid-cols-3 gap-2">
-                    {CAPTION_SIZES.map((opt) => (
-                      <button
-                        key={opt.label}
-                        type="button"
-                        onClick={() => onDecorChange({ captionFraction: opt.value })}
-                        className={`rounded-md border px-2 py-1.5 text-xs font-medium transition ${
-                          Math.abs(captionFractionValue - opt.value) < 0.02
-                            ? "border-accent bg-accent-soft text-accent"
-                            : "border-line bg-surface-2 text-ink-muted"
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                  <input
-                    type="range"
-                    min={20}
-                    max={100}
-                    step={5}
-                    value={Math.round(captionFractionValue * 100)}
-                    onChange={(e) => onDecorChange({ captionFraction: Number(e.target.value) / 100 })}
-                  />
-                  <span className="text-[11px] text-ink-faint">色塊太高壓到照片時，選「小」；拉到 100% 整張都是紙</span>
-                </div>
-              )}
-            </section>
-            )}
 
             {features.captionBg && !linkedColor && captionEnabled && (
               <section className="flex flex-col gap-3 border-t border-line pt-3">
@@ -1295,6 +1226,61 @@ export function ToolPanel(props: ToolPanelProps) {
 
             {captionEnabled && (
               <>
+            {(features.captionPosition || features.captionSize) && (
+            <section className="flex flex-col gap-3">
+              <SectionTitle>文案區塊</SectionTitle>
+              {features.captionPosition && (
+                <div className="grid grid-cols-2 gap-2">
+                  {LAYOUT_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => onLayoutChange(opt.id)}
+                      className={`flex items-center gap-2 rounded-md border px-3 py-2 text-left text-xs font-medium transition ${
+                        layout === opt.id ? "border-accent bg-accent-soft text-accent" : "border-line bg-surface-2 text-ink-muted"
+                      }`}
+                    >
+                      <LayoutIcon id={opt.id} />
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {features.captionSize && (
+                <div className="flex flex-col gap-2">
+                  <span className="flex justify-between text-xs text-ink-muted">
+                    <span>文案區塊大小</span>
+                    <span>{Math.round(captionFractionValue * 100)}%</span>
+                  </span>
+                  <div className="grid grid-cols-3 gap-2">
+                    {CAPTION_SIZES.map((opt) => (
+                      <button
+                        key={opt.label}
+                        type="button"
+                        onClick={() => onDecorChange({ captionFraction: opt.value })}
+                        className={`rounded-md border px-2 py-1.5 text-xs font-medium transition ${
+                          Math.abs(captionFractionValue - opt.value) < 0.02
+                            ? "border-accent bg-accent-soft text-accent"
+                            : "border-line bg-surface-2 text-ink-muted"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    type="range"
+                    min={20}
+                    max={100}
+                    step={5}
+                    value={Math.round(captionFractionValue * 100)}
+                    onChange={(e) => onDecorChange({ captionFraction: Number(e.target.value) / 100 })}
+                  />
+                  <span className="text-[11px] text-ink-faint">色塊太高壓到照片時，選「小」；拉到 100% 整張都是紙</span>
+                </div>
+              )}
+            </section>
+            )}
                 {features.captionMode && (
                 <div className="flex flex-col gap-2">
                   <span className="text-xs text-ink-muted">文字排法</span>

@@ -67,7 +67,7 @@ export const STYLE_PRESETS: StylePreset[] = [
     captionEnabled: false,
     decor: { doodlesEnabled: true, doodleColor: "#e5251b", doodleSizePct: 17, doodleAround: true, doodleOutline: true },
     doodles: { count: 5, region: { x0: 2, y0: 2, x1: 98, y1: 98 } },
-    features: { ...NO_FEATURES, captionBlock: true, doodles: true, frame: true },
+    features: { ...NO_FEATURES, captionBlock: true, captionPosition: true, captionSize: true, doodles: true, frame: true },
   },
   {
     id: "cutout-block",
