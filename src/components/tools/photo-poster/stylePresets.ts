@@ -1,4 +1,3 @@
-import { makeDoodles } from "./doodles";
 import { makeDots, makeTiles, makeWordPositions } from "./decorLayout";
 import { zoneAspectOf } from "./zones";
 import { ALL_FEATURES, DEFAULT_DECOR } from "./types";
@@ -6,7 +5,6 @@ import type {
   BracketStyleId,
   Cutout,
   DecorState,
-  Doodle,
   Dot,
   FontOptionId,
   PosterLayoutId,
@@ -47,27 +45,26 @@ export const STYLE_PRESETS: StylePreset[] = [
     features: { ...NO_FEATURES, captionBlock: true, captionPosition: true, captionSize: true, captionBg: true, shapes: true, windows: true },
   },
   {
-    id: "marker-doodle",
-    label: "塗鴉標記",
-    sublabel: "滿版照片 · 紅色麥克筆手繪塗鴉",
-    shapeId: "square",
+    id: "dot-art",
+    label: "點陣印記",
+    sublabel: "滿版照片 · 白色點陣把畫面轉成印記",
+    shapeId: "circle",
     bracketId: "none",
-    fontOptionId: "handwriting",
+    fontOptionId: "sans",
     layout: "text-top",
-    captionBgColor: "#f4f3ee",
-    textColor: "#e5251b",
+    captionBgColor: "#111111",
+    textColor: "#f6f1e4",
     scaleMultiplier: 1,
-    baseFontSizePx: 22,
-    lineHeightMultiplier: 1.3,
+    baseFontSizePx: 18,
+    lineHeightMultiplier: 1.4,
     letterSpacingPx: 0,
     grainEnabled: false,
     grainIntensity: 30,
     cutoutCount: 3,
     shapesEnabled: false,
     captionEnabled: false,
-    decor: { doodlesEnabled: true, doodleColor: "#e5251b", doodleSizePct: 17, doodleAround: true, doodleOutline: true },
-    doodles: { count: 5, region: { x0: 2, y0: 2, x1: 98, y1: 98 } },
-    features: { ...NO_FEATURES, captionBlock: true, captionPosition: true, captionSize: true, doodles: true, frame: true },
+    decor: { dotArtEnabled: true, dotArtColor: "#ffffff", dotArtCellPct: 1.3, dotArtThreshold: 0.26, dotArtArea: "background" },
+    features: { ...NO_FEATURES, captionBlock: true, captionPosition: true, captionSize: true, dotArt: true, frame: true },
   },
   {
     id: "cutout-block",
@@ -188,7 +185,6 @@ export interface StyleState {
   cutouts: Cutout[];
   tiles: Tile[];
   dots: Dot[];
-  doodles: Doodle[];
   wordPositions: WordPos[];
 }
 
@@ -236,7 +232,6 @@ export function buildStyleState(
           preset.tiles.aspects,
         )
       : [],
-    doodles: preset.doodles ? makeDoodles(preset.doodles.count, preset.doodles.region, decor.doodleSizePct, zoneAspect, { ring: decor.doodleAround }) : [],
     dots: preset.dots ? makeDots(preset.dots.count, preset.dots.region, preset.dots.palette) : [],
     wordPositions: preset.words ? makeWordPositions(wordCountOf(opts.caption), preset.words.region) : [],
   };

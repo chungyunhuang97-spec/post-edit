@@ -9,7 +9,6 @@ import type {
   CollageLayoutId,
   Cutout,
   DecorState,
-  Doodle,
   Dot,
   PosterLayoutId,
   ShapeOption,
@@ -19,7 +18,7 @@ import type {
 } from "./types";
 import { buildCaptionTokens } from "./useCutoutLayout";
 import { canvasShapePath } from "./shapes";
-import { DOODLE_STROKE, doodlePath, drawSubjectOutline, ringTopLeft } from "./doodles";
+import { drawDotArt } from "./dotArt";
 import { computeZones, type ZoneRect } from "./zones";
 import { drawHalftoneTile, locateInPane, stickerSourceRect, type SourceRect } from "./stickerCrop";
 
@@ -142,7 +141,6 @@ export interface RenderPosterParams {
   decor: DecorState;
   tiles: Tile[];
   dots: Dot[];
-  doodles: Doodle[];
   wordPositions: WordPos[];
   /** Per-photo zoom >= 1 beyond the minimum cover-fit scale. */
   zooms: number[];
@@ -188,7 +186,6 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
     decor,
     tiles,
     dots,
-    doodles,
     wordPositions,
     zooms,
     layout,
@@ -356,6 +353,21 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
       });
     }
 
+    if (decor.dotArtEnabled) {
+      panes.forEach((pane, i) => {
+        const im = imgs[i];
+        const g = geoms[i];
+        if (!im || !g) return;
+        drawDotArt(ctx, im, subjectMasks[i] ?? null, pane, g, {
+          cellPx: (decor.dotArtCellPct / 100) * content.w,
+          threshold: decor.dotArtThreshold,
+          invert: decor.dotArtInvert,
+          area: decor.dotArtArea,
+          color: decor.dotArtColor,
+        });
+      });
+    }
+
     // Mirrors PosterPreview.tsx's renderSticker: the bare shape, filled
     // with its color (flat) or a dot print of the photo (halftone).
     cutouts.forEach((cutout) => {
@@ -498,32 +510,6 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
       ctx.beginPath();
       ctx.arc(px(dot.xPct), py(dot.yPct), (decor.dotSizePx * scale) / 2, 0, Math.PI * 2);
       ctx.fill();
-    });
-  }
-
-  if (decor.doodlesEnabled) {
-    const size = (decor.doodleSizePct / 100) * content.w;
-    ctx.strokeStyle = decor.doodleColor;
-    ctx.lineWidth = DOODLE_STROKE * (size / 100);
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    // A marker line traced around the first photo's subject.
-    if (decor.doodleOutline && subjectMasks[0] && geoms[0]) {
-      drawSubjectOutline(ctx, subjectMasks[0], decor.doodleColor, DOODLE_STROKE * (size / 100), { pane: panes[0], geom: geoms[0] });
-    }
-    doodles.forEach((d) => {
-      const spot =
-        decor.doodleAround && d.ring !== undefined && geoms[0]
-          ? ringTopLeft(subjectMasks[0] ?? null, { pane: panes[0], geom: geoms[0] }, d.ring, size, content)
-          : null;
-      ctx.save();
-      ctx.translate((spot ? spot.x : px(d.xPct)) + size / 2, (spot ? spot.y : py(d.yPct)) + size / 2);
-      ctx.rotate((d.rot * Math.PI) / 180);
-      ctx.translate(-size / 2, -size / 2);
-      ctx.scale(size / 100, size / 100);
-      ctx.lineWidth = DOODLE_STROKE;
-      ctx.stroke(new Path2D(doodlePath(d.kind, d.seed)));
-      ctx.restore();
     });
   }
 

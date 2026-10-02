@@ -138,7 +138,6 @@ export function useStyleThumbnails(enabled: boolean): Record<string, string> {
             decor: st.decor,
             tiles: st.tiles,
             dots: st.dots,
-            doodles: st.doodles,
             wordPositions: st.wordPositions,
             zooms: [1],
             layout: st.layout,

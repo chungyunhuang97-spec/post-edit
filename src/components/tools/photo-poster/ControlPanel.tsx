@@ -11,7 +11,6 @@ import type {
   CollageLayoutId,
   Cutout,
   DecorState,
-  Doodle,
   Dot,
   FontOptionId,
   PosterLayoutId,
@@ -361,10 +360,6 @@ export interface ToolPanelProps {
   onDotsEnabledChange: (enabled: boolean) => void;
   onDotCountChange: (n: number) => void;
   onShuffleDots: () => void;
-  doodles: Doodle[];
-  onDoodlesEnabledChange: (enabled: boolean) => void;
-  onDoodleCountChange: (n: number) => void;
-  onShuffleDoodles: () => void;
   onDotColorChange: (id: string, color: string) => void;
   onShuffleWords: () => void;
   /** Controls the active style uses (everything when none / "show all"). */
@@ -468,10 +463,6 @@ export function ToolPanel(props: ToolPanelProps) {
     onDotsEnabledChange,
     onDotCountChange,
     onShuffleDots,
-    doodles,
-    onDoodlesEnabledChange,
-    onDoodleCountChange,
-    onShuffleDoodles,
     onDotColorChange,
     onShuffleWords,
     onExport,
@@ -965,70 +956,70 @@ export function ToolPanel(props: ToolPanelProps) {
             </>
             )}
 
-            {features.doodles && (
+            {features.dotArt && (
             <>
             <div className="border-t border-line" />
             <label className="flex items-center justify-between gap-3 rounded-md border border-line bg-surface-2 px-3 py-1.5 text-xs text-ink-muted md:py-2">
               <span className="flex flex-col gap-0.5">
-                <span className="font-medium text-ink">顯示手繪塗鴉</span>
-                <Desc>麥克筆風格的星星、音符、愛心…（可拖曳到畫布任何地方）</Desc>
+                <span className="font-medium text-ink">顯示點陣</span>
+                <Desc>把照片轉成點陣（像 dot-art generator），疊在照片上</Desc>
               </span>
               <input
                 type="checkbox"
-                checked={decor.doodlesEnabled}
-                onChange={(e) => onDoodlesEnabledChange(e.target.checked)}
+                checked={decor.dotArtEnabled}
+                onChange={(e) => onDecorChange({ dotArtEnabled: e.target.checked })}
                 className="h-4 w-4 shrink-0 accent-accent"
               />
             </label>
-            {decor.doodlesEnabled && (
+            {decor.dotArtEnabled && (
               <>
-                <label className="grid grid-cols-[5.5rem_1fr_3rem] items-center gap-2 text-xs text-ink-muted"><span>塗鴉數量</span><input type="range" min={1} max={14} value={doodles.length} onChange={(e) => onDoodleCountChange(Number(e.target.value))} /><span className="text-right tabular-nums">{doodles.length}</span></label>
-                <label className="grid grid-cols-[5.5rem_1fr_3rem] items-center gap-2 text-xs text-ink-muted"><span>塗鴉大小</span><input
+                <div className="flex flex-col gap-2">
+                  <span className="text-xs text-ink-muted">點陣範圍</span>
+                  <Segmented<"all" | "subject" | "background">
+                    options={[
+                      { id: "all", label: "整張" },
+                      { id: "subject", label: "只有人物" },
+                      { id: "background", label: "只有背景" },
+                    ]}
+                    value={decor.dotArtArea}
+                    onChange={(id) => onDecorChange({ dotArtArea: id })}
+                  />
+                  {decor.dotArtArea !== "all" && maskStatus === "loading" && (
+                    <p className="text-[11px] text-ink-faint">偵測人物中，第一次使用需要下載辨識模型…</p>
+                  )}
+                  {decor.dotArtArea !== "all" && maskStatus === "unavailable" && (
+                    <p className="text-[11px] text-ink-faint">這張照片沒有偵測到人物或動物，點陣會鋪滿整張。</p>
+                  )}
+                </div>
+                <label className="grid grid-cols-[5.5rem_1fr_3rem] items-center gap-2 text-xs text-ink-muted"><span>點的大小</span><input
                     type="range"
-                    min={6}
-                    max={40}
-                    value={decor.doodleSizePct}
-                    onChange={(e) => onDecorChange({ doodleSizePct: Number(e.target.value) })}
-                  /><span className="text-right tabular-nums">{decor.doodleSizePct}%</span></label>
-                <ColorField label="筆色" value={decor.doodleColor} onChange={(hex) => onDecorChange({ doodleColor: hex })} />
+                    min={0.8}
+                    max={5}
+                    step={0.1}
+                    value={decor.dotArtCellPct}
+                    onChange={(e) => onDecorChange({ dotArtCellPct: Number(e.target.value) })}
+                  /><span className="text-right tabular-nums">{decor.dotArtCellPct.toFixed(1)}</span></label>
+                <label className="grid grid-cols-[5.5rem_1fr_3rem] items-center gap-2 text-xs text-ink-muted"><span>點的多寡</span><input
+                    type="range"
+                    min={10}
+                    max={90}
+                    step={1}
+                    value={Math.round(decor.dotArtThreshold * 100)}
+                    onChange={(e) => onDecorChange({ dotArtThreshold: Number(e.target.value) / 100 })}
+                  /><span className="text-right tabular-nums">{Math.round(decor.dotArtThreshold * 100)}%</span></label>
                 <label className="flex items-center justify-between gap-3 text-xs text-ink-muted">
                   <span className="flex flex-col gap-0.5">
-                    <span>塗鴉沿著人物外圍排列</span>
-                    <Desc>自動偵測照片裡的人物或動物，塗鴉貼著他的外圍（拖曳某個塗鴉後，它就改成自由位置）</Desc>
+                    <span>反相</span>
+                    <Desc>預設點落在暗的地方，反相後點落在亮的地方</Desc>
                   </span>
                   <input
                     type="checkbox"
-                    checked={decor.doodleAround}
-                    onChange={(e) => onDecorChange({ doodleAround: e.target.checked })}
+                    checked={decor.dotArtInvert}
+                    onChange={(e) => onDecorChange({ dotArtInvert: e.target.checked })}
                     className="h-4 w-4 shrink-0 accent-accent"
                   />
                 </label>
-                <label className="flex items-center justify-between gap-3 text-xs text-ink-muted">
-                  <span className="flex flex-col gap-0.5">
-                    <span>手繪描邊人物</span>
-                    <Desc>用麥克筆沿著人物外圍畫一圈</Desc>
-                  </span>
-                  <input
-                    type="checkbox"
-                    checked={decor.doodleOutline}
-                    onChange={(e) => onDecorChange({ doodleOutline: e.target.checked })}
-                    className="h-4 w-4 shrink-0 accent-accent"
-                  />
-                </label>
-                {(decor.doodleAround || decor.doodleOutline) && maskStatus === "loading" && (
-                  <p className="text-[11px] text-ink-faint">偵測人物中，第一次使用需要下載辨識模型…</p>
-                )}
-                {(decor.doodleAround || decor.doodleOutline) && maskStatus === "unavailable" && (
-                  <p className="text-[11px] text-ink-faint">這張照片沒有偵測到人物或動物，塗鴉會改為隨機分布。</p>
-                )}
-                <Desc>每個塗鴉都是不同的圖案，最多 14 種</Desc>
-                <button
-                  type="button"
-                  onClick={onShuffleDoodles}
-                  className="rounded-md border border-line bg-surface-2 px-3 py-1.5 text-xs font-medium text-ink-muted hover:text-ink"
-                >
-                  重新畫過
-                </button>
+                <ColorField label="點的顏色" value={decor.dotArtColor} onChange={(hex) => onDecorChange({ dotArtColor: hex })} />
               </>
             )}
             </>

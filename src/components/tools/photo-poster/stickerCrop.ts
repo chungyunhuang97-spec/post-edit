@@ -56,7 +56,7 @@ export function stickerSourceRect(
 }
 
 /** Draws a riso-style halftone of the sampled photo region into the square
- * at (x, y): white paper, with a grid of `color` dots whose size follows
+ * at (x, y): no paper behind it (whatever is under shows through), a grid of `color` dots whose size follows
  * how dark that part of the photo is -- so the sticker actually carries the
  * picture, as a printed dot screen, rather than a generic dot texture. */
 export function drawHalftoneTile(
@@ -74,8 +74,6 @@ export function drawHalftoneTile(
   tmp.width = n;
   tmp.height = n;
   const t = tmp.getContext("2d", { willReadFrequently: true });
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(x, y, size, size);
   if (!t) return;
   t.drawImage(source, r.sx, r.sy, r.sSize, r.sSize, 0, 0, n, n);
   const { data } = t.getImageData(0, 0, n, n);

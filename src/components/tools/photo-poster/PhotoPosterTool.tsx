@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BRACKET_OPTIONS, FONT_OPTIONS, SHAPE_BASE_PX, SHAPE_OPTIONS, generateSocialCaption } from "./constants";
 import { MAX_PHOTOS, photoCountOf } from "./collage";
-import { makeDoodles, setRings } from "./doodles";
 import { assignTilePhotos, captionWords, makeDots, makeTiles, makeWordPositions } from "./decorLayout";
 import { CanvasSizeStep } from "./CanvasSizeStep";
 import { ToolPanel, ToolRail, type TabId } from "./ControlPanel";
@@ -21,7 +20,6 @@ import type {
   CollageLayoutId,
   Cutout,
   DecorState,
-  Doodle,
   Dot,
   FontOptionId,
   PosterLayoutId,
@@ -68,7 +66,6 @@ function styleSnapshot(v: {
   cutoutCount: number;
   tileCount: number;
   dotCount: number;
-  doodleCount: number;
 }): string {
   const { subjectPasteX, subjectPasteY, ...decorRest } = v.decor;
   void subjectPasteX;
@@ -87,7 +84,6 @@ function readStoredSheetHeight(): number {
 // Where freshly generated free-placed layers land, in % of the poster.
 const TILE_REGION = { x0: 8, y0: 10, x1: 92, y1: 90 };
 const DOT_REGION = { x0: 5, y0: 5, x1: 95, y1: 95 };
-const DOODLE_REGION = { x0: 2, y0: 2, x1: 98, y1: 98 };
 const WORD_REGION = { x0: 12, y0: 15, x1: 88, y1: 85 };
 const INITIAL_CAPTION = generateSocialCaption("neutral");
 const DEFAULT_CAPTION_BG = "#15111f";
@@ -146,7 +142,6 @@ export function PhotoPosterTool() {
   const [decor, setDecor] = useState<DecorState>(DEFAULT_DECOR);
   const [tiles, setTiles] = useState<Tile[]>([]);
   const [dots, setDots] = useState<Dot[]>([]);
-  const [doodles, setDoodles] = useState<Doodle[]>([]);
   const [wordPositions, setWordPositions] = useState<WordPos[]>([]);
   const [activeStyleId, setActiveStyleId] = useState<string | null>(null);
   // With a style applied, only the controls it uses are listed; this brings
@@ -265,8 +260,8 @@ export function PhotoPosterTool() {
   // Subject detection (a client-side ML model) runs only once a feature
   // that needs it is switched on, once per photo; the preview and the
   // export share the result.
-  // Subject detection also serves the doodles that follow the subject.
-  const sil = decor.silhouetteEnabled || (decor.doodlesEnabled && (decor.doodleAround || decor.doodleOutline));
+  // Subject detection also serves the dot art when it only covers the subject (or only the background).
+  const sil = decor.silhouetteEnabled || (decor.dotArtEnabled && decor.dotArtArea !== "all");
   const mask0 = useSubjectMask(paneCount > 0 ? imageUrls[0] : null, sil);
   const mask1 = useSubjectMask(paneCount > 1 ? imageUrls[1] : null, sil);
   const mask2 = useSubjectMask(paneCount > 2 ? imageUrls[2] : null, sil);
@@ -360,7 +355,6 @@ export function PhotoPosterTool() {
           cutoutCount: st.cutouts.length,
           tileCount: st.tiles.length,
           dotCount: st.dots.length,
-          doodleCount: st.doodles.length,
         }),
       );
       setShapeId(st.shapeId);
@@ -383,7 +377,6 @@ export function PhotoPosterTool() {
       setCutouts(st.cutouts);
       setTiles(st.tiles);
       setDots(st.dots);
-      setDoodles(st.doodles);
       setWordPositions(st.wordPositions);
     },
     [caption, photoCount, preset],
@@ -422,34 +415,6 @@ export function PhotoPosterTool() {
     () => setTiles((prev) => makeTiles(prev.length, TILE_REGION, zoneAspect, photoCount)),
      
     [zoneAspect, photoCount],
-  );
-
-  const doodleSize = decor.doodleSizePct;
-  const handleDoodlesEnabledChange = useCallback(
-    (enabled: boolean) => {
-      patchDecor({ doodlesEnabled: enabled });
-      if (enabled && doodles.length === 0) setDoodles(makeDoodles(5, DOODLE_REGION, doodleSize, zoneAspect, { ring: decor.doodleAround }));
-    },
-    [doodles.length, patchDecor, doodleSize, zoneAspect, decor.doodleAround],
-  );
-  const handleDoodleCountChange = useCallback(
-    (n: number) =>
-      setDoodles((prev) =>
-        n <= prev.length
-          ? prev.slice(0, n)
-          : [
-              ...prev,
-              ...makeDoodles(n - prev.length, DOODLE_REGION, doodleSize, zoneAspect, {
-                ring: decor.doodleAround,
-                keep: prev.map((d) => d.kind),
-              }),
-            ],
-      ),
-    [doodleSize, zoneAspect, decor.doodleAround],
-  );
-  const handleShuffleDoodles = useCallback(
-    () => setDoodles((prev) => makeDoodles(prev.length, DOODLE_REGION, doodleSize, zoneAspect, { ring: decor.doodleAround })),
-    [doodleSize, zoneAspect, decor.doodleAround],
   );
 
   const handleDotsEnabledChange = useCallback(
@@ -528,7 +493,6 @@ export function PhotoPosterTool() {
         cutoutCount: cutouts.length,
         tileCount: tiles.length,
         dotCount: dots.length,
-        doodleCount: doodles.length,
       });
   const linkedColor = activeStyle?.linkedColors === "frame" && !showAllFeatures;
   // 挖空色塊: the shapes are the same colour as the block they cut through.
@@ -541,7 +505,6 @@ export function PhotoPosterTool() {
         setCaptionBgColor(patch.frameColor);
       }
       patchDecor(next);
-      if (patch.doodleAround !== undefined) setDoodles((prev) => setRings(prev, !!patch.doodleAround));
       if (patch.captionMode === "scatter") ensureWordPositions(captionWords(caption).length);
     },
     [patchDecor, ensureWordPositions, caption, linkedColor],
@@ -616,7 +579,6 @@ export function PhotoPosterTool() {
         decor,
         tiles,
         dots,
-        doodles,
         wordPositions,
         zooms,
         layout,
@@ -661,7 +623,6 @@ export function PhotoPosterTool() {
     decor,
     tiles,
     dots,
-    doodles,
     wordPositions,
     zooms,
     layout,
@@ -798,8 +759,6 @@ export function PhotoPosterTool() {
             onTilesChange={setTiles}
             dots={dots}
             onDotsChange={setDots}
-            doodles={doodles}
-            onDoodlesChange={setDoodles}
             wordPositions={wordPositions}
             onWordPositionsChange={setWordPositions}
             zooms={zooms}
@@ -860,10 +819,6 @@ export function PhotoPosterTool() {
             onTileChange={handleTileChange}
             onShuffleTiles={handleShuffleTiles}
             dots={dots}
-            doodles={doodles}
-            onDoodlesEnabledChange={handleDoodlesEnabledChange}
-            onDoodleCountChange={handleDoodleCountChange}
-            onShuffleDoodles={handleShuffleDoodles}
             onDotsEnabledChange={handleDotsEnabledChange}
             onDotCountChange={handleDotCountChange}
             onShuffleDots={handleShuffleDots}

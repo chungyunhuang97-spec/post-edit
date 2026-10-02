@@ -130,7 +130,7 @@ export interface StickerStyleOption {
  * drifting back to the same default look. */
 export type StylePresetId =
   | "film-dump"
-  | "marker-doodle"
+  | "dot-art"
   | "cutout-block"
   | "journal-dots"
   | "airy-words"
@@ -159,8 +159,8 @@ export interface StyleFeatures {
   tiles: boolean;
   dots: boolean;
   silhouette: boolean;
-  /** Hand-drawn marker doodles. */
-  doodles: boolean;
+  /** Dot-matrix drawing of the photo laid over it. */
+  dotArt: boolean;
 }
 
 export const ALL_FEATURES: StyleFeatures = {
@@ -175,7 +175,7 @@ export const ALL_FEATURES: StyleFeatures = {
   tiles: true,
   dots: true,
   silhouette: true,
-  doodles: true,
+  dotArt: true,
 };
 
 export interface StylePreset {
@@ -212,7 +212,6 @@ export interface StylePreset {
   /** Free-placed small photos, solid dots and scattered word anchors, each
    * generated inside a region given in % of the poster. */
   tiles?: { count: number; region: { x0: number; y0: number; x1: number; y1: number }; aspects?: number[] };
-  doodles?: { count: number; region: { x0: number; y0: number; x1: number; y1: number } };
   dots?: { count: number; region: { x0: number; y0: number; x1: number; y1: number }; palette: string[] };
   words?: { region: { x0: number; y0: number; x1: number; y1: number } };
   /** Cycling per-cutout color override (candy-sticker look). Omitted means
@@ -247,36 +246,6 @@ export interface Tile {
   wPct: number;
   /** width / height */
   aspect: number;
-}
-
-export type DoodleKind =
-  | "star"
-  | "note"
-  | "heart"
-  | "sparkle"
-  | "loop"
-  | "arrow"
-  | "flower"
-  | "lightning"
-  | "smile"
-  | "cloud"
-  | "sun"
-  | "cross"
-  | "wave"
-  | "crown";
-
-/** A hand-drawn marker doodle (see doodles.ts). Top-left corner in % of the
- * anchor zone; its size is shared (DecorState.doodleSizePct). */
-export interface Doodle {
-  id: string;
-  kind: DoodleKind;
-  seed: number;
-  xPct: number;
-  yPct: number;
-  /** degrees */
-  rot: number;
-  /** Angle around the subject it follows (radians); cleared once dragged. */
-  ring?: number;
 }
 
 /** A solid decorative dot (the colored-sticker-dots look). */
@@ -321,14 +290,13 @@ export interface DecorState {
   /** Paints the detected subject of the first photo as a flat color shape. */
   silhouetteEnabled: boolean;
   silhouetteColor: string;
-  doodlesEnabled: boolean;
-  doodleColor: string;
-  /** Width of each doodle as a % of the poster's content width. */
-  doodleSizePct: number;
-  /** Doodles sit around the detected subject instead of anywhere. */
-  doodleAround: boolean;
-  /** A marker line traced around the detected subject. */
-  doodleOutline: boolean;
+  dotArtEnabled: boolean;
+  dotArtColor: string;
+  /** Dot spacing as a % of the poster's content width. */
+  dotArtCellPct: number;
+  dotArtThreshold: number;
+  dotArtInvert: boolean;
+  dotArtArea: "all" | "subject" | "background";
   /** Scattered words are turned 90 degrees, dot first. */
   scatterVertical: boolean;
   /** Overlay layouts only: the text band has no fill, so text sits straight on the photo. */
@@ -359,11 +327,12 @@ export const DEFAULT_DECOR: DecorState = {
   dotSizePx: 16,
   silhouetteEnabled: false,
   silhouetteColor: "#c8102e",
-  doodlesEnabled: false,
-  doodleColor: "#e5251b",
-  doodleSizePct: 16,
-  doodleAround: false,
-  doodleOutline: false,
+  dotArtEnabled: false,
+  dotArtColor: "#ffffff",
+  dotArtCellPct: 1.3,
+  dotArtThreshold: 0.3,
+  dotArtInvert: false,
+  dotArtArea: "all",
   scatterVertical: false,
   captionBgTransparent: false,
   subjectPaste: false,

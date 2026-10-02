@@ -13,7 +13,6 @@ import type {
   CollageLayoutId,
   Cutout,
   DecorState,
-  Doodle,
   Dot,
   FontOption,
   PosterLayoutId,
@@ -23,7 +22,7 @@ import type {
   WordPos,
 } from "./types";
 import { paneFracs } from "./collage";
-import { DOODLE_STROKE, doodlePath, drawSubjectOutline, ringTopLeft } from "./doodles";
+import { drawDotArt } from "./dotArt";
 import { drawHalftoneTile, locateInPane, stickerSourceRect, type CropGeom } from "./stickerCrop";
 import { buildCaptionTokens, clampPct } from "./useCutoutLayout";
 
@@ -128,8 +127,6 @@ export interface PosterPreviewProps {
   onTilesChange: (next: Tile[]) => void;
   dots: Dot[];
   onDotsChange: (next: Dot[]) => void;
-  doodles: Doodle[];
-  onDoodlesChange: (next: Doodle[]) => void;
   wordPositions: WordPos[];
   onWordPositionsChange: (next: WordPos[]) => void;
   zooms: number[];
@@ -188,20 +185,20 @@ function SilhouetteCanvas({
   );
 }
 
-/** The marker line traced around a photo's subject (see drawSubjectOutline). */
-function OutlineCanvas({
+/** The dot-matrix drawing of a photo (see drawDotArt), over that photo. */
+function DotArtCanvas({
+  img,
   mask,
-  color,
-  lineWidth,
+  opts,
   width,
   height,
   geom,
   left = 0,
   top = 0,
 }: {
-  mask: SubjectMask;
-  color: string;
-  lineWidth: number;
+  img: HTMLImageElement;
+  mask: SubjectMask | null;
+  opts: { cellPx: number; threshold: number; invert: boolean; area: "all" | "subject" | "background"; color: string };
   width: number;
   height: number;
   geom: CropGeom;
@@ -210,6 +207,7 @@ function OutlineCanvas({
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const { offsetX, offsetY, renderedW, renderedH } = geom;
+  const { cellPx, threshold, invert, area, color } = opts;
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas || width <= 0 || height <= 0) return;
@@ -219,17 +217,15 @@ function OutlineCanvas({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    drawSubjectOutline(
+    drawDotArt(
       ctx,
+      img,
       mask,
-      color,
-      lineWidth * dpr,
-      {
-        pane: { x: 0, y: 0, w: canvas.width, h: canvas.height },
-        geom: { offsetX: offsetX * dpr, offsetY: offsetY * dpr, renderedW: renderedW * dpr, renderedH: renderedH * dpr },
-      },
+      { x: 0, y: 0, w: canvas.width, h: canvas.height },
+      { offsetX: offsetX * dpr, offsetY: offsetY * dpr, renderedW: renderedW * dpr, renderedH: renderedH * dpr },
+      { cellPx: cellPx * dpr, threshold, invert, area, color },
     );
-  }, [mask, color, lineWidth, width, height, offsetX, offsetY, renderedW, renderedH]);
+  }, [img, mask, cellPx, threshold, invert, area, color, width, height, offsetX, offsetY, renderedW, renderedH]);
   return <canvas ref={ref} className="pointer-events-none absolute" style={{ width, height, left, top }} />;
 }
 
@@ -330,8 +326,6 @@ export function PosterPreview({
   onTilesChange,
   dots,
   onDotsChange,
-  doodles,
-  onDoodlesChange,
   wordPositions,
   onWordPositionsChange,
   zooms,
@@ -361,7 +355,7 @@ export function PosterPreview({
     contentObserverRef.current = observer;
   }, []);
   const overlayDrag = useRef<{
-    kind: "tile" | "dot" | "word" | "doodle";
+    kind: "tile" | "dot" | "word";
     id: string;
     index: number;
     startX: number;
@@ -634,26 +628,6 @@ export function PosterPreview({
   const zoneRect = captionEnabled
     ? computeZones(layout, contentSize.w, contentSize.h, fraction).text
     : { x: 0, y: 0, w: contentSize.w, h: contentSize.h };
-  // Where the first photo sits on the poster, for doodles that follow its subject.
-  const photoRect = captionEnabled
-    ? computeZones(layout, contentSize.w, contentSize.h, fraction).photo
-    : { x: 0, y: 0, w: contentSize.w, h: contentSize.h };
-  const place0 = {
-    pane: {
-      x: photoRect.x + panesFrac[0].x * photoRect.w,
-      y: photoRect.y + panesFrac[0].y * photoRect.h,
-      w: panesFrac[0].w * photoRect.w,
-      h: panesFrac[0].h * photoRect.h,
-    },
-    geom: geometries[0],
-  };
-  const doodleSizePx = (decor.doodleSizePct / 100) * contentSize.w;
-  /** A doodle's top-left in px inside the overlay zone, when it follows the subject. */
-  function ringSpot(d: Doodle): { x: number; y: number } | null {
-    if (!decor.doodleAround || d.ring === undefined || !imageUrls[0] || !contentSize.w) return null;
-    const p = ringTopLeft(subjectMasks[0], place0, d.ring, doodleSizePx, { x: 0, y: 0, w: contentSize.w, h: contentSize.h });
-    return p ? { x: p.x - zoneRect.x, y: p.y - zoneRect.y } : null;
-  }
   const bandFraction = fraction ?? OVERLAY_BAND_FRACTION;
   const splitFraction = fraction ?? TOP_ZONE_FRACTION;
   const bandInset = `${((1 - bandFraction) / 2) * 100}%`;
@@ -777,18 +751,30 @@ export function PosterPreview({
           })}
         </>
       )}
-      {decor.doodlesEnabled && decor.doodleOutline && subjectMasks[0] && imageUrls[0] && (
-        <OutlineCanvas
-          mask={subjectMasks[0]}
-          color={decor.doodleColor}
-          lineWidth={DOODLE_STROKE * (((decor.doodleSizePct / 100) * contentSize.w) / 100)}
-          width={paneBoxes[0].w}
-          height={paneBoxes[0].h}
-          geom={geometries[0]}
-          left={panesFrac[0].x * boxSize.w}
-          top={panesFrac[0].y * boxSize.h}
-        />
-      )}
+      {decor.dotArtEnabled &&
+        panesFrac.map((f, slot) => {
+          const im = imageEls[slot];
+          if (!im || !imageUrls[slot]) return null;
+          return (
+            <DotArtCanvas
+              key={`dotart-${slot}`}
+              img={im}
+              mask={subjectMasks[slot] ?? null}
+              opts={{
+                cellPx: (decor.dotArtCellPct / 100) * contentSize.w,
+                threshold: decor.dotArtThreshold,
+                invert: decor.dotArtInvert,
+                area: decor.dotArtArea,
+                color: decor.dotArtColor,
+              }}
+              width={paneBoxes[slot].w}
+              height={paneBoxes[slot].h}
+              geom={geometries[slot]}
+              left={f.x * boxSize.w}
+              top={f.y * boxSize.h}
+            />
+          );
+        })}
       {decor.silhouetteEnabled &&
         panesFrac.map((f, slot) => {
           const m = subjectMasks[slot];
@@ -826,7 +812,7 @@ export function PosterPreview({
   // frame, so they follow any canvas size; the export mirrors this. ---
   function startOverlayDrag(
     e: ReactPointerEvent<Element>,
-    kind: "tile" | "dot" | "word" | "doodle",
+    kind: "tile" | "dot" | "word",
     id: string,
     index: number,
     originX: number,
@@ -878,20 +864,6 @@ export function PosterPreview({
                 yPct: within(y, minY, maxY - ((t.wPct / t.aspect) * zoneRect.w) / zoneRect.h),
               }
             : t,
-        ),
-      );
-    } else if (d.kind === "doodle") {
-      const sizePx = (decor.doodleSizePct / 100) * contentSize.w;
-      onDoodlesChange(
-        doodles.map((dd) =>
-          dd.id === d.id
-            ? {
-                ...dd,
-                xPct: within(x, minX, maxX - (sizePx / zoneRect.w) * 100),
-                yPct: within(y, minY, maxY - (sizePx / zoneRect.h) * 100),
-                ring: undefined,
-              }
-            : dd,
         ),
       );
     } else if (d.kind === "dot") {
@@ -1031,41 +1003,6 @@ export function PosterPreview({
             onPointerUp={endOverlayDrag}
           />
         ))}
-      {decor.doodlesEnabled &&
-        doodles.map((d) => {
-          const spot = ringSpot(d);
-          const left = spot ? spot.x : (d.xPct / 100) * zoneRect.w;
-          const top = spot ? spot.y : (d.yPct / 100) * zoneRect.h;
-          return (
-            <svg
-              key={d.id}
-              viewBox="0 0 100 100"
-              className="pointer-events-auto absolute overflow-visible"
-              style={{
-                left,
-                top,
-                width: doodleSizePx,
-                height: doodleSizePx,
-                transform: `rotate(${d.rot}deg)`,
-                cursor: overlayCursor,
-              }}
-              onPointerDown={(e) =>
-                startOverlayDrag(e, "doodle", d.id, 0, (left / zoneRect.w) * 100, (top / zoneRect.h) * 100)
-              }
-              onPointerMove={moveOverlayDrag}
-              onPointerUp={endOverlayDrag}
-            >
-              <path
-                d={doodlePath(d.kind, d.seed)}
-                fill="none"
-                stroke={decor.doodleColor}
-                strokeWidth={DOODLE_STROKE}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          );
-        })}
       {words.map((word, i) => {
         const pos = wordPositions[i];
         if (!pos) return null;
