@@ -71,9 +71,15 @@ export async function segmentSubject(imageUrl: string): Promise<SubjectMask | nu
     const width = categoryMask.width;
     const height = categoryMask.height;
     const data = new Uint8Array(width * height);
+    // Pascal VOC class 15 is "person". When somebody is in the photo they
+    // are the subject (not the plant or chair next to them); otherwise any
+    // detected object (a cat, a dog, a bird...) is.
+    let personPixels = 0;
+    for (let i = 0; i < raw.length; i++) if (raw[i] === 15) personPixels++;
+    const personOnly = personPixels > raw.length * 0.01;
     let subjectPixels = 0;
     for (let i = 0; i < raw.length; i++) {
-      if (raw[i] !== 0) {
+      if (personOnly ? raw[i] === 15 : raw[i] !== 0) {
         data[i] = 1;
         subjectPixels++;
       }

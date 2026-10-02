@@ -23,7 +23,7 @@ import type {
   WordPos,
 } from "./types";
 import { paneFracs } from "./collage";
-import { DOODLE_STROKE, doodlePath } from "./doodles";
+import { DOODLE_STROKE, doodlePath, drawSubjectOutline, ringTopLeft } from "./doodles";
 import { drawHalftoneTile, locateInPane, stickerSourceRect, type CropGeom } from "./stickerCrop";
 import { buildCaptionTokens, clampPct } from "./useCutoutLayout";
 
@@ -186,6 +186,51 @@ function SilhouetteCanvas({
       style={{ width, height, left, top }}
     />
   );
+}
+
+/** The marker line traced around a photo's subject (see drawSubjectOutline). */
+function OutlineCanvas({
+  mask,
+  color,
+  lineWidth,
+  width,
+  height,
+  geom,
+  left = 0,
+  top = 0,
+}: {
+  mask: SubjectMask;
+  color: string;
+  lineWidth: number;
+  width: number;
+  height: number;
+  geom: CropGeom;
+  left?: number;
+  top?: number;
+}) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  const { offsetX, offsetY, renderedW, renderedH } = geom;
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas || width <= 0 || height <= 0) return;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawSubjectOutline(
+      ctx,
+      mask,
+      color,
+      lineWidth * dpr,
+      {
+        pane: { x: 0, y: 0, w: canvas.width, h: canvas.height },
+        geom: { offsetX: offsetX * dpr, offsetY: offsetY * dpr, renderedW: renderedW * dpr, renderedH: renderedH * dpr },
+      },
+    );
+  }, [mask, color, lineWidth, width, height, offsetX, offsetY, renderedW, renderedH]);
+  return <canvas ref={ref} className="pointer-events-none absolute" style={{ width, height, left, top }} />;
 }
 
 /** The cut-out subject (see subjectCutout.ts) drawn into a canvas that
@@ -589,6 +634,26 @@ export function PosterPreview({
   const zoneRect = captionEnabled
     ? computeZones(layout, contentSize.w, contentSize.h, fraction).text
     : { x: 0, y: 0, w: contentSize.w, h: contentSize.h };
+  // Where the first photo sits on the poster, for doodles that follow its subject.
+  const photoRect = captionEnabled
+    ? computeZones(layout, contentSize.w, contentSize.h, fraction).photo
+    : { x: 0, y: 0, w: contentSize.w, h: contentSize.h };
+  const place0 = {
+    pane: {
+      x: photoRect.x + panesFrac[0].x * photoRect.w,
+      y: photoRect.y + panesFrac[0].y * photoRect.h,
+      w: panesFrac[0].w * photoRect.w,
+      h: panesFrac[0].h * photoRect.h,
+    },
+    geom: geometries[0],
+  };
+  const doodleSizePx = (decor.doodleSizePct / 100) * contentSize.w;
+  /** A doodle's top-left in px inside the overlay zone, when it follows the subject. */
+  function ringSpot(d: Doodle): { x: number; y: number } | null {
+    if (!decor.doodleAround || d.ring === undefined || !imageUrls[0] || !contentSize.w) return null;
+    const p = ringTopLeft(subjectMasks[0], place0, d.ring, doodleSizePx, { x: 0, y: 0, w: contentSize.w, h: contentSize.h });
+    return p ? { x: p.x - zoneRect.x, y: p.y - zoneRect.y } : null;
+  }
   const bandFraction = fraction ?? OVERLAY_BAND_FRACTION;
   const splitFraction = fraction ?? TOP_ZONE_FRACTION;
   const bandInset = `${((1 - bandFraction) / 2) * 100}%`;
@@ -712,6 +777,18 @@ export function PosterPreview({
           })}
         </>
       )}
+      {decor.doodlesEnabled && decor.doodleOutline && subjectMasks[0] && imageUrls[0] && (
+        <OutlineCanvas
+          mask={subjectMasks[0]}
+          color={decor.doodleColor}
+          lineWidth={DOODLE_STROKE * (((decor.doodleSizePct / 100) * contentSize.w) / 100)}
+          width={paneBoxes[0].w}
+          height={paneBoxes[0].h}
+          geom={geometries[0]}
+          left={panesFrac[0].x * boxSize.w}
+          top={panesFrac[0].y * boxSize.h}
+        />
+      )}
       {decor.silhouetteEnabled &&
         panesFrac.map((f, slot) => {
           const m = subjectMasks[slot];
@@ -812,6 +889,7 @@ export function PosterPreview({
                 ...dd,
                 xPct: within(x, minX, maxX - (sizePx / zoneRect.w) * 100),
                 yPct: within(y, minY, maxY - (sizePx / zoneRect.h) * 100),
+                ring: undefined,
               }
             : dd,
         ),
@@ -955,21 +1033,25 @@ export function PosterPreview({
         ))}
       {decor.doodlesEnabled &&
         doodles.map((d) => {
-          const sizePx = (decor.doodleSizePct / 100) * contentSize.w;
+          const spot = ringSpot(d);
+          const left = spot ? spot.x : (d.xPct / 100) * zoneRect.w;
+          const top = spot ? spot.y : (d.yPct / 100) * zoneRect.h;
           return (
             <svg
               key={d.id}
               viewBox="0 0 100 100"
               className="pointer-events-auto absolute overflow-visible"
               style={{
-                left: `${d.xPct}%`,
-                top: `${d.yPct}%`,
-                width: sizePx,
-                height: sizePx,
+                left,
+                top,
+                width: doodleSizePx,
+                height: doodleSizePx,
                 transform: `rotate(${d.rot}deg)`,
                 cursor: overlayCursor,
               }}
-              onPointerDown={(e) => startOverlayDrag(e, "doodle", d.id, 0, d.xPct, d.yPct)}
+              onPointerDown={(e) =>
+                startOverlayDrag(e, "doodle", d.id, 0, (left / zoneRect.w) * 100, (top / zoneRect.h) * 100)
+              }
               onPointerMove={moveOverlayDrag}
               onPointerUp={endOverlayDrag}
             >

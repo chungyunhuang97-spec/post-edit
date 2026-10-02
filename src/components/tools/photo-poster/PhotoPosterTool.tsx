@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BRACKET_OPTIONS, FONT_OPTIONS, SHAPE_BASE_PX, SHAPE_OPTIONS, generateSocialCaption } from "./constants";
 import { MAX_PHOTOS, photoCountOf } from "./collage";
-import { makeDoodles } from "./doodles";
+import { makeDoodles, setRings } from "./doodles";
 import { assignTilePhotos, captionWords, makeDots, makeTiles, makeWordPositions } from "./decorLayout";
 import { CanvasSizeStep } from "./CanvasSizeStep";
 import { ToolPanel, ToolRail, type TabId } from "./ControlPanel";
@@ -265,7 +265,8 @@ export function PhotoPosterTool() {
   // Subject detection (a client-side ML model) runs only once a feature
   // that needs it is switched on, once per photo; the preview and the
   // export share the result.
-  const sil = decor.silhouetteEnabled;
+  // Subject detection also serves the doodles that follow the subject.
+  const sil = decor.silhouetteEnabled || (decor.doodlesEnabled && (decor.doodleAround || decor.doodleOutline));
   const mask0 = useSubjectMask(paneCount > 0 ? imageUrls[0] : null, sil);
   const mask1 = useSubjectMask(paneCount > 1 ? imageUrls[1] : null, sil);
   const mask2 = useSubjectMask(paneCount > 2 ? imageUrls[2] : null, sil);
@@ -427,20 +428,28 @@ export function PhotoPosterTool() {
   const handleDoodlesEnabledChange = useCallback(
     (enabled: boolean) => {
       patchDecor({ doodlesEnabled: enabled });
-      if (enabled && doodles.length === 0) setDoodles(makeDoodles(5, DOODLE_REGION, doodleSize, zoneAspect));
+      if (enabled && doodles.length === 0) setDoodles(makeDoodles(5, DOODLE_REGION, doodleSize, zoneAspect, { ring: decor.doodleAround }));
     },
-    [doodles.length, patchDecor, doodleSize, zoneAspect],
+    [doodles.length, patchDecor, doodleSize, zoneAspect, decor.doodleAround],
   );
   const handleDoodleCountChange = useCallback(
     (n: number) =>
       setDoodles((prev) =>
-        n <= prev.length ? prev.slice(0, n) : [...prev, ...makeDoodles(n - prev.length, DOODLE_REGION, doodleSize, zoneAspect)],
+        n <= prev.length
+          ? prev.slice(0, n)
+          : [
+              ...prev,
+              ...makeDoodles(n - prev.length, DOODLE_REGION, doodleSize, zoneAspect, {
+                ring: decor.doodleAround,
+                keep: prev.map((d) => d.kind),
+              }),
+            ],
       ),
-    [doodleSize, zoneAspect],
+    [doodleSize, zoneAspect, decor.doodleAround],
   );
   const handleShuffleDoodles = useCallback(
-    () => setDoodles((prev) => makeDoodles(prev.length, DOODLE_REGION, doodleSize, zoneAspect)),
-    [doodleSize, zoneAspect],
+    () => setDoodles((prev) => makeDoodles(prev.length, DOODLE_REGION, doodleSize, zoneAspect, { ring: decor.doodleAround })),
+    [doodleSize, zoneAspect, decor.doodleAround],
   );
 
   const handleDotsEnabledChange = useCallback(
@@ -532,6 +541,7 @@ export function PhotoPosterTool() {
         setCaptionBgColor(patch.frameColor);
       }
       patchDecor(next);
+      if (patch.doodleAround !== undefined) setDoodles((prev) => setRings(prev, !!patch.doodleAround));
       if (patch.captionMode === "scatter") ensureWordPositions(captionWords(caption).length);
     },
     [patchDecor, ensureWordPositions, caption, linkedColor],

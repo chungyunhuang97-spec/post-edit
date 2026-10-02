@@ -1051,7 +1051,7 @@ export function ToolPanel(props: ToolPanelProps) {
             </label>
             {decor.doodlesEnabled && (
               <>
-                <label className="grid grid-cols-[5.5rem_1fr_3rem] items-center gap-2 text-xs text-ink-muted"><span>塗鴉數量</span><input type="range" min={1} max={12} value={doodles.length} onChange={(e) => onDoodleCountChange(Number(e.target.value))} /><span className="text-right tabular-nums">{doodles.length}</span></label>
+                <label className="grid grid-cols-[5.5rem_1fr_3rem] items-center gap-2 text-xs text-ink-muted"><span>塗鴉數量</span><input type="range" min={1} max={14} value={doodles.length} onChange={(e) => onDoodleCountChange(Number(e.target.value))} /><span className="text-right tabular-nums">{doodles.length}</span></label>
                 <label className="grid grid-cols-[5.5rem_1fr_3rem] items-center gap-2 text-xs text-ink-muted"><span>塗鴉大小</span><input
                     type="range"
                     min={6}
@@ -1060,6 +1060,37 @@ export function ToolPanel(props: ToolPanelProps) {
                     onChange={(e) => onDecorChange({ doodleSizePct: Number(e.target.value) })}
                   /><span className="text-right tabular-nums">{decor.doodleSizePct}%</span></label>
                 <ColorField label="筆色" value={decor.doodleColor} onChange={(hex) => onDecorChange({ doodleColor: hex })} />
+                <label className="flex items-center justify-between gap-3 text-xs text-ink-muted">
+                  <span className="flex flex-col gap-0.5">
+                    <span>塗鴉沿著人物外圍排列</span>
+                    <Desc>自動偵測照片裡的人物或動物，塗鴉貼著他的外圍（拖曳某個塗鴉後，它就改成自由位置）</Desc>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={decor.doodleAround}
+                    onChange={(e) => onDecorChange({ doodleAround: e.target.checked })}
+                    className="h-4 w-4 shrink-0 accent-accent"
+                  />
+                </label>
+                <label className="flex items-center justify-between gap-3 text-xs text-ink-muted">
+                  <span className="flex flex-col gap-0.5">
+                    <span>手繪描邊人物</span>
+                    <Desc>用麥克筆沿著人物外圍畫一圈</Desc>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={decor.doodleOutline}
+                    onChange={(e) => onDecorChange({ doodleOutline: e.target.checked })}
+                    className="h-4 w-4 shrink-0 accent-accent"
+                  />
+                </label>
+                {(decor.doodleAround || decor.doodleOutline) && maskStatus === "loading" && (
+                  <p className="text-[11px] text-ink-faint">偵測人物中，第一次使用需要下載辨識模型…</p>
+                )}
+                {(decor.doodleAround || decor.doodleOutline) && maskStatus === "unavailable" && (
+                  <p className="text-[11px] text-ink-faint">這張照片沒有偵測到人物或動物，塗鴉會改為隨機分布。</p>
+                )}
+                <Desc>每個塗鴉都是不同的圖案，最多 14 種</Desc>
                 <button
                   type="button"
                   onClick={onShuffleDoodles}

@@ -249,7 +249,21 @@ export interface Tile {
   aspect: number;
 }
 
-export type DoodleKind = "star" | "note" | "heart" | "sparkle" | "loop" | "arrow";
+export type DoodleKind =
+  | "star"
+  | "note"
+  | "heart"
+  | "sparkle"
+  | "loop"
+  | "arrow"
+  | "flower"
+  | "lightning"
+  | "smile"
+  | "cloud"
+  | "sun"
+  | "cross"
+  | "wave"
+  | "crown";
 
 /** A hand-drawn marker doodle (see doodles.ts). Top-left corner in % of the
  * anchor zone; its size is shared (DecorState.doodleSizePct). */
@@ -261,6 +275,8 @@ export interface Doodle {
   yPct: number;
   /** degrees */
   rot: number;
+  /** Angle around the subject it follows (radians); cleared once dragged. */
+  ring?: number;
 }
 
 /** A solid decorative dot (the colored-sticker-dots look). */
@@ -309,6 +325,10 @@ export interface DecorState {
   doodleColor: string;
   /** Width of each doodle as a % of the poster's content width. */
   doodleSizePct: number;
+  /** Doodles sit around the detected subject instead of anywhere. */
+  doodleAround: boolean;
+  /** A marker line traced around the detected subject. */
+  doodleOutline: boolean;
   /** Scattered words are turned 90 degrees, dot first. */
   scatterVertical: boolean;
   /** Overlay layouts only: the text band has no fill, so text sits straight on the photo. */
@@ -342,6 +362,8 @@ export const DEFAULT_DECOR: DecorState = {
   doodlesEnabled: false,
   doodleColor: "#e5251b",
   doodleSizePct: 16,
+  doodleAround: false,
+  doodleOutline: false,
   scatterVertical: false,
   captionBgTransparent: false,
   subjectPaste: false,

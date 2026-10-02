@@ -19,7 +19,7 @@ import type {
 } from "./types";
 import { buildCaptionTokens } from "./useCutoutLayout";
 import { canvasShapePath } from "./shapes";
-import { DOODLE_STROKE, doodlePath } from "./doodles";
+import { DOODLE_STROKE, doodlePath, drawSubjectOutline, ringTopLeft } from "./doodles";
 import { computeZones, type ZoneRect } from "./zones";
 import { drawHalftoneTile, locateInPane, stickerSourceRect, type SourceRect } from "./stickerCrop";
 
@@ -507,9 +507,17 @@ export async function renderPosterToCanvas(params: RenderPosterParams): Promise<
     ctx.lineWidth = DOODLE_STROKE * (size / 100);
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
+    // A marker line traced around the first photo's subject.
+    if (decor.doodleOutline && subjectMasks[0] && geoms[0]) {
+      drawSubjectOutline(ctx, subjectMasks[0], decor.doodleColor, DOODLE_STROKE * (size / 100), { pane: panes[0], geom: geoms[0] });
+    }
     doodles.forEach((d) => {
+      const spot =
+        decor.doodleAround && d.ring !== undefined && geoms[0]
+          ? ringTopLeft(subjectMasks[0] ?? null, { pane: panes[0], geom: geoms[0] }, d.ring, size, content)
+          : null;
       ctx.save();
-      ctx.translate(px(d.xPct) + size / 2, py(d.yPct) + size / 2);
+      ctx.translate((spot ? spot.x : px(d.xPct)) + size / 2, (spot ? spot.y : py(d.yPct)) + size / 2);
       ctx.rotate((d.rot * Math.PI) / 180);
       ctx.translate(-size / 2, -size / 2);
       ctx.scale(size / 100, size / 100);

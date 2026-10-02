@@ -65,7 +65,7 @@ export const STYLE_PRESETS: StylePreset[] = [
     cutoutCount: 3,
     shapesEnabled: false,
     captionEnabled: false,
-    decor: { doodlesEnabled: true, doodleColor: "#e5251b", doodleSizePct: 17 },
+    decor: { doodlesEnabled: true, doodleColor: "#e5251b", doodleSizePct: 17, doodleAround: true, doodleOutline: true },
     doodles: { count: 5, region: { x0: 2, y0: 2, x1: 98, y1: 98 } },
     features: { ...NO_FEATURES, captionBlock: true, doodles: true, frame: true },
   },
@@ -236,7 +236,7 @@ export function buildStyleState(
           preset.tiles.aspects,
         )
       : [],
-    doodles: preset.doodles ? makeDoodles(preset.doodles.count, preset.doodles.region, decor.doodleSizePct, zoneAspect) : [],
+    doodles: preset.doodles ? makeDoodles(preset.doodles.count, preset.doodles.region, decor.doodleSizePct, zoneAspect, { ring: decor.doodleAround }) : [],
     dots: preset.dots ? makeDots(preset.dots.count, preset.dots.region, preset.dots.palette) : [],
     wordPositions: preset.words ? makeWordPositions(wordCountOf(opts.caption), preset.words.region) : [],
   };
