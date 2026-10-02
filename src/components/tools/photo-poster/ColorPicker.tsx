@@ -1,8 +1,45 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { hexToHsv, hsvToHex, normalizeHex } from "./colorUtils";
+
+// The user's favourite colours: one list shared by every picker, kept in
+// this browser's localStorage (so it survives reloads, but doesn't follow
+// the person to another device).
+const SAVED_KEY = "photo-poster.savedColors";
+const SAVED_MAX = 20;
+const NO_COLORS: string[] = [];
+let savedCache: string[] | null = null;
+const savedListeners = new Set<() => void>();
+
+function readSaved(): string[] {
+  if (savedCache) return savedCache;
+  try {
+    const raw = JSON.parse(window.localStorage.getItem(SAVED_KEY) ?? "[]");
+    savedCache = Array.isArray(raw) ? raw.filter((c): c is string => typeof c === "string" && !!normalizeHex(c)) : [];
+  } catch {
+    savedCache = [];
+  }
+  return savedCache;
+}
+
+function writeSaved(next: string[]) {
+  savedCache = next;
+  try {
+    window.localStorage.setItem(SAVED_KEY, JSON.stringify(next));
+  } catch {
+    // storage blocked: the list still works until the page closes
+  }
+  savedListeners.forEach((l) => l());
+}
+
+function subscribeSaved(cb: () => void) {
+  savedListeners.add(cb);
+  return () => {
+    savedListeners.delete(cb);
+  };
+}
 
 interface EyeDropperResult {
   sRGBHex: string;
@@ -35,13 +72,16 @@ export function ColorPicker({
   const squareRef = useRef<HTMLDivElement>(null);
   const [hsv, setHsv] = useState<[number, number, number]>(() => hexToHsv(value));
   const [text, setText] = useState(value);
+  const saved = useSyncExternalStore(subscribeSaved, readSaved, () => NO_COLORS);
+  const current = normalizeHex(value) ?? value;
+  const isSaved = saved.includes(current);
   const hasEyeDropper = typeof window !== "undefined" && "EyeDropper" in window;
 
   function openPicker() {
     const r = triggerRef.current?.getBoundingClientRect();
     if (r) {
       const w = 232;
-      const h = 290;
+      const h = 370;
       const left = Math.min(Math.max(8, r.left), window.innerWidth - w - 8);
       const below = r.bottom + 6;
       const top = below + h > window.innerHeight ? Math.max(8, r.top - h - 6) : below;
@@ -187,6 +227,49 @@ export function ColorPicker({
                 aria-label="色碼"
               />
             </label>
+            <div className="flex flex-col gap-2 border-t border-line pt-3">
+              <div className="flex items-center justify-between text-[11px] text-ink-muted">
+                <span>我的顏色</span>
+                <button
+                  type="button"
+                  disabled={isSaved || saved.length >= SAVED_MAX}
+                  onClick={() => writeSaved([current, ...saved].slice(0, SAVED_MAX))}
+                  className="rounded-md border border-line bg-surface-2 px-2 py-0.5 font-medium text-ink hover:border-accent hover:text-accent disabled:opacity-40"
+                >
+                  {isSaved ? "已儲存" : "＋ 儲存目前顏色"}
+                </button>
+              </div>
+              {saved.length === 0 ? (
+                <p className="text-[11px] text-ink-faint">按「儲存目前顏色」，之後所有顏色欄位都能一鍵套用。</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {saved.map((c) => (
+                    <span key={c} className="group relative">
+                      <button
+                        type="button"
+                        title={c}
+                        aria-label={`套用 ${c}`}
+                        onClick={() => {
+                          setHsv(hexToHsv(c));
+                          setText(c);
+                          onChange(c);
+                        }}
+                        className="h-6 w-6 rounded-full border border-line"
+                        style={{ backgroundColor: c, outline: c === current ? "2px solid var(--color-accent)" : undefined, outlineOffset: 1 }}
+                      />
+                      <button
+                        type="button"
+                        aria-label={`移除 ${c}`}
+                        onClick={() => writeSaved(saved.filter((x) => x !== c))}
+                        className="absolute -right-1 -top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-ink text-[9px] leading-none text-bg opacity-60 hover:opacity-100 group-hover:opacity-100"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>,
           document.body,
         )}
